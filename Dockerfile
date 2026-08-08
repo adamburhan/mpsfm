@@ -73,9 +73,12 @@ RUN rm -rf \
 # Not used by the default (runtime) build.
 FROM builder as dev
 COPY requirements.txt /tmp/requirements.txt
+# setuptools<81: mmcv's setup.py needs pkg_resources, removed in newer setuptools;
+# PIP_CONSTRAINT also applies inside pip's isolated build envs
 RUN python3 -m pip install --upgrade pip && \
     grep -v 'ml-depth-pro' /tmp/requirements.txt > /tmp/req.txt && \
-    python3 -m pip install -r /tmp/req.txt && \
+    echo "setuptools<81" > /tmp/pip-constraints.txt && \
+    PIP_CONSTRAINT=/tmp/pip-constraints.txt python3 -m pip install -r /tmp/req.txt && \
     rm -rf /root/.cache
 WORKDIR /mpsfm
 ENTRYPOINT ["bash"]
@@ -114,9 +117,11 @@ ENV PATH=/usr/local/bin:$PATH
 WORKDIR /mpsfm
 # Install Python requirements & finalize
 COPY requirements.txt .
+# setuptools<81: see dev stage note (mmcv needs pkg_resources at build time)
 RUN python3 -m pip install --upgrade pip && \
     grep -v 'ml-depth-pro' requirements.txt > /tmp/req.txt && \
-    pip install -r /tmp/req.txt && \
+    echo "setuptools<81" > /tmp/pip-constraints.txt && \
+    PIP_CONSTRAINT=/tmp/pip-constraints.txt pip install -r /tmp/req.txt && \
     rm -rf /root/.cache
 
 # Final entrypoint
