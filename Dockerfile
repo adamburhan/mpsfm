@@ -54,7 +54,9 @@ RUN git clone --depth 1 https://github.com/Zador-Pataki/colmap.git /colmap && \
     ninja install && \
     python3 -m pip install /colmap
 
-# Clean up dev files to reduce image size
+# Slim stage: clean up dev files to reduce the size of the runtime COPY.
+# Kept separate from builder so the dev stage retains headers and CMake configs.
+FROM builder as builder-slim
 RUN rm -rf \
     /colmap \
     /ceres-solver \
@@ -65,6 +67,18 @@ RUN rm -rf \
     /usr/local/share \
     /usr/local/lib/*.a \
     /usr/local/lib/*.la
+
+# Dev stage: builder toolchain + Python deps for interactive C++/pycolmap iteration.
+# Build with: docker build --target dev -t mpsfm-dev .
+# Not used by the default (runtime) build.
+FROM builder as dev
+COPY requirements.txt /tmp/requirements.txt
+RUN python3 -m pip install --upgrade pip && \
+    grep -v 'ml-depth-pro' /tmp/requirements.txt > /tmp/req.txt && \
+    python3 -m pip install -r /tmp/req.txt && \
+    rm -rf /root/.cache
+WORKDIR /mpsfm
+ENTRYPOINT ["bash"]
 
 # Runtime stage: minimal runtime dependencies
 FROM nvidia/cuda:${NVIDIA_CUDA_VERSION}-runtime-ubuntu${UBUNTU_VERSION} as runtime
@@ -93,8 +107,8 @@ RUN apt-get update && \
         python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy compiled artifacts from builder
-COPY --from=builder /usr/local/ /usr/local/
+# Copy compiled artifacts from builder (slim variant, dev files stripped)
+COPY --from=builder-slim /usr/local/ /usr/local/
 ENV PATH=/usr/local/bin:$PATH
 
 WORKDIR /mpsfm
