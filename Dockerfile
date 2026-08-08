@@ -75,6 +75,11 @@ RUN rm -rf \
 # Build with: docker build --target dev -t mpsfm-dev .
 # Not used by the default (runtime) build.
 FROM builder as dev
+# runtime-only conveniences the builder stage lacks: wget (checkpoint
+# downloads in mpsfm/extraction) and the `python` alias
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends wget python-is-python3 && \
+    rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/requirements.txt
 # mmcv installed separately with --no-build-isolation: its setup.py needs
 # pkg_resources, removed in setuptools>=81, so it must build against our
@@ -84,7 +89,12 @@ RUN python3 -m pip install --upgrade pip "setuptools<81" wheel && \
     grep -v -e 'ml-depth-pro' -e '^mmcv' /tmp/requirements.txt > /tmp/req.txt && \
     python3 -m pip install -r /tmp/req.txt && \
     MMCV_WITH_OPS=0 python3 -m pip install --no-build-isolation mmcv && \
-    rm -rf /root/.cache
+    rm -rf /root/.cache && \
+    # cholespy vendors metis.h/libmetis.a into the dist-packages prefix, which
+    # scikit-build-core puts on CMAKE_PREFIX_PATH; that broken METIS poisons
+    # SuiteSparse detection in any later pip-driven pycolmap/pyceres build
+    rm -f /usr/local/lib/python3.10/dist-packages/include/metis.h \
+          /usr/local/lib/python3.10/dist-packages/lib/libmetis.a
 WORKDIR /mpsfm
 ENTRYPOINT ["bash"]
 
