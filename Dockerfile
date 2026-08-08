@@ -73,12 +73,14 @@ RUN rm -rf \
 # Not used by the default (runtime) build.
 FROM builder as dev
 COPY requirements.txt /tmp/requirements.txt
-# setuptools<81: mmcv's setup.py needs pkg_resources, removed in newer setuptools;
-# PIP_CONSTRAINT also applies inside pip's isolated build envs
-RUN python3 -m pip install --upgrade pip && \
-    grep -v 'ml-depth-pro' /tmp/requirements.txt > /tmp/req.txt && \
-    echo "setuptools<81" > /tmp/pip-constraints.txt && \
-    PIP_CONSTRAINT=/tmp/pip-constraints.txt python3 -m pip install -r /tmp/req.txt && \
+# mmcv installed separately with --no-build-isolation: its setup.py needs
+# pkg_resources, removed in setuptools>=81, so it must build against our
+# pinned setuptools instead of an isolated (latest) one. MMCV_WITH_OPS=0
+# skips the CUDA ops, matching the upstream image (built without torch).
+RUN python3 -m pip install --upgrade pip "setuptools<81" wheel && \
+    grep -v -e 'ml-depth-pro' -e '^mmcv' /tmp/requirements.txt > /tmp/req.txt && \
+    python3 -m pip install -r /tmp/req.txt && \
+    MMCV_WITH_OPS=0 python3 -m pip install --no-build-isolation mmcv && \
     rm -rf /root/.cache
 WORKDIR /mpsfm
 ENTRYPOINT ["bash"]
@@ -117,11 +119,11 @@ ENV PATH=/usr/local/bin:$PATH
 WORKDIR /mpsfm
 # Install Python requirements & finalize
 COPY requirements.txt .
-# setuptools<81: see dev stage note (mmcv needs pkg_resources at build time)
-RUN python3 -m pip install --upgrade pip && \
-    grep -v 'ml-depth-pro' requirements.txt > /tmp/req.txt && \
-    echo "setuptools<81" > /tmp/pip-constraints.txt && \
-    PIP_CONSTRAINT=/tmp/pip-constraints.txt pip install -r /tmp/req.txt && \
+# mmcv handled separately: see dev stage note (needs pkg_resources at build time)
+RUN python3 -m pip install --upgrade pip "setuptools<81" wheel && \
+    grep -v -e 'ml-depth-pro' -e '^mmcv' requirements.txt > /tmp/req.txt && \
+    pip install -r /tmp/req.txt && \
+    MMCV_WITH_OPS=0 pip install --no-build-isolation mmcv && \
     rm -rf /root/.cache
 
 # Final entrypoint
