@@ -43,7 +43,10 @@ RUN git clone --branch 2.2.0 --depth 1 https://ceres-solver.googlesource.com/cer
     mkdir /ceres-solver/build && cd /ceres-solver/build && \
     cmake .. -GNinja -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCHITECTURES} -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX=/usr/local && \
     ninja install
-RUN git clone --depth 1 https://github.com/cvg/pyceres.git /pyceres && \
+# pyceres v2.5: last release compatible with the colmap fork's pybind11 2.x
+# bindings (pyceres main builds with pybind11 3.x, which cannot share
+# ceres::Manifold types with pycolmap across modules)
+RUN git clone --branch v2.5 --depth 1 https://github.com/cvg/pyceres.git /pyceres && \
     python3 -m pip install /pyceres
 RUN python3 -m pip install ruff
 ARG COLMAP_GIT_COMMIT=main
