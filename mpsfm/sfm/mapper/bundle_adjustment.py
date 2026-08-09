@@ -19,6 +19,7 @@ class Optimizer(BaseClass):
     """Optimizer class for Bundle Adjustment."""
 
     default_conf = {
+        "depth_factor": "unimodal",  # [unimodal, maxmix]
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -36,6 +37,7 @@ class Optimizer(BaseClass):
     }
 
     def _init(self, mpsfm_rec, correspondences):
+        assert self.conf.depth_factor in ["unimodal", "maxmix"], f"Invalid depth_factor {self.conf.depth_factor}"
         self.mpsfm_rec = mpsfm_rec
         self.correspondences = correspondences
 
@@ -157,23 +159,51 @@ class Optimizer(BaseClass):
             p3Ds = np.array(p3Ds)[mask]
 
             m = param_multiplier * self.conf.rob_std
-            params = m * variances**0.5 / depths
-            magnitudes = depths**2 * inv_uncert
 
-            pycolmap.create_depth_bundle_adjuster(
-                problem,
-                imid,
-                p3Ds,
-                depths,
-                magnitudes,
-                params,
-                depth_loss_type,
-                shift_scale[imid],
-                self.mpsfm_rec.rec,
-                fix_shift=True,
-                fix_scale=fix_scale,
-                logloss=True,
-            )
+            if self.conf.depth_factor == "maxmix":
+                mixture = image.depth.mixture_at_kps(p2Ds)
+                if mixture is None:
+                    # degenerate K=1 mixture from the unimodal prior; verified
+                    # equivalent to the unimodal factor
+                    modes = depths[:, None]
+                    weights = np.ones_like(modes)
+                    sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
+                else:
+                    modes, weights, sigmas = mixture
+                # residuals are whitened inside the factor: no magnitudes, and
+                # robust loss scale is in sigma units
+                pycolmap.create_maxmix_depth_bundle_adjuster(
+                    problem,
+                    imid,
+                    p3Ds,
+                    modes,
+                    weights,
+                    sigmas,
+                    np.full(len(p3Ds), m),
+                    depth_loss_type,
+                    shift_scale[imid],
+                    self.mpsfm_rec.rec,
+                    fix_shift=True,
+                    fix_scale=fix_scale,
+                )
+            else:
+                params = m * variances**0.5 / depths
+                magnitudes = depths**2 * inv_uncert
+
+                pycolmap.create_depth_bundle_adjuster(
+                    problem,
+                    imid,
+                    p3Ds,
+                    depths,
+                    magnitudes,
+                    params,
+                    depth_loss_type,
+                    shift_scale[imid],
+                    self.mpsfm_rec.rec,
+                    fix_shift=True,
+                    fix_scale=fix_scale,
+                    logloss=True,
+                )
 
             fix_shiftscale = [0]  # for now we do not support fixing optimizing shift
             if fix_scale:

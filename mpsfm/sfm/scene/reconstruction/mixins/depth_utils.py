@@ -62,6 +62,11 @@ class DepthUtils:
         self.images[imid].depth.scale *= scale
         self.images[imid].depth.shift = self.images[imid].depth.shift * scale + shift
         self.images[imid].depth.uncertainty *= scale**2
+        # mixture modes are absolute linear depths, rescaled like data_prior;
+        # log-space sigmas and weights are scale-invariant and stay untouched
+        if self.images[imid].depth.mixture is not None:
+            mixture = self.images[imid].depth.mixture
+            mixture["modes"] = mixture["modes"] * scale + shift
 
     def __rescale_update(self, imid, shift, scale, rescale_depth=False):
         """Rescales optimized depth"""

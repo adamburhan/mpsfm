@@ -1,0 +1,5 @@
+# Default pipeline (sp-lg + Metric3Dv2) with the max-mixture depth factor.
+# Without per-keypoint mixtures attached (Depth.set_mixture), this runs the
+# degenerate K=1 fallback, which is exactly equivalent to the unimodal factor.
+ba:
+  depth_factor: maxmix

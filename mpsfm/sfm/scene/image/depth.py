@@ -126,12 +126,35 @@ class Depth(BaseClass, PriorUtils):
             self.valid[self.data_prior > self.conf.depth_lim] = False
 
         self.uncertainty_update = self.uncertainty_at_kps(kps)
+        self.mixture = None
+
+    def set_mixture(self, modes, weights, sigmas):
+        """Per-keypoint depth mixture, each (num_kps, K): mode depths in the
+        current (scaled) linear depth units, mode weights, and log-space stds.
+        Modes are rescaled alongside data_prior (see _rescale_prior and
+        reset); log-space sigmas and weights are scale-invariant."""
+        assert modes.shape == weights.shape == sigmas.shape
+        assert len(modes) == len(self.kps)
+        self.mixture = {"modes": modes, "weights": weights, "sigmas": sigmas}
+
+    def mixture_at_kps(self, pt2D_ids):
+        """Returns (modes, weights, sigmas) stacks at the given keypoint ids,
+        or None if no mixture was set."""
+        if self.mixture is None:
+            return None
+        return (
+            self.mixture["modes"][pt2D_ids],
+            self.mixture["weights"][pt2D_ids],
+            self.mixture["sigmas"][pt2D_ids],
+        )
 
     def reset(self):
         """Reset the depth class to its initial state."""
         self.data_prior /= self.scale
         self.uncertainty /= self.scale**2
         self.uncertainty_update = self.uncertainty_at_kps(self.kps)
+        if self.mixture is not None:
+            self.mixture["modes"] = self.mixture["modes"] / self.scale
         self.scale = 1
         self.shift = 0
         self.activated = False
