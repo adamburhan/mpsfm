@@ -1,0 +1,15 @@
+# paper/repr-sp-lg_m3dv2 + max-mixture depth factor with K=2 patch-GMM
+# mixtures at discontinuity-candidate keypoints.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix

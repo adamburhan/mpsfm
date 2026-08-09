@@ -5,6 +5,7 @@ import numpy as np
 
 from mpsfm.baseclass import BaseClass
 from mpsfm.sfm.scene.image.mixins.priorutils import PriorUtils
+from mpsfm.sfm.scene.image.mixture import fit_mixture
 from mpsfm.sfm.scene.image.utils import get_continuity_mask
 
 
@@ -26,6 +27,14 @@ class Depth(BaseClass, PriorUtils):
         "flip_consistency": False,  # uncertainties via computing difference between the depth estimates of
         # the image and the flipped image
         "depth_uncertainty": 0.0263,  # uncertainty created by multiplying the depth by a constant
+        # K=2 patch-GMM mixtures at keypoints for the max-mixture depth factor
+        "mixture": False,
+        "mixture_radius": 6,  # patch radius in depth-map pixels
+        "mixture_wmin": 0.05,
+        "mixture_sig_floor": 0.05,  # log-sigma floor (~5% relative)
+        "mixture_sep_min": 0.1,  # min mode separation in log depth (~10%)
+        "mixture_em_iters": 30,
+        "mixture_uniform_weights": True,
         "verbose": 0,
     }
 
@@ -127,6 +136,44 @@ class Depth(BaseClass, PriorUtils):
 
         self.uncertainty_update = self.uncertainty_at_kps(kps)
         self.mixture = None
+        if self.conf.mixture:
+            self._fit_mixture()
+
+    def _fit_mixture(self):
+        """Fits K=2 patch-GMM mixtures at keypoints on the (unscaled) prior.
+        Candidates are keypoints with a depth discontinuity within the patch;
+        the rest keep a degenerate unimodal-equivalent stack."""
+        kps_scaled = self.kps * np.array([self.camera.sx, self.camera.sy])
+        radius = self.conf.mixture_radius
+        continuity = getattr(self, "continuity_mask", None)
+        if continuity is not None:
+            # candidate = any discontinuity within the patch disk
+            kernel = np.ones((2 * radius + 1, 2 * radius + 1), np.uint8)
+            ambiguous = cv2.dilate((~continuity).astype(np.uint8), kernel) > 0
+            h, w = ambiguous.shape
+            u = np.clip(np.floor(kps_scaled[:, 0]).astype(np.int64), 0, w - 1)
+            v = np.clip(np.floor(kps_scaled[:, 1]).astype(np.int64), 0, h - 1)
+            candidates = ambiguous[v, u]
+        else:
+            candidates = np.ones(len(self.kps), dtype=bool)
+        candidates &= self.valid_at_kps(self.kps)
+
+        modes, weights, sigmas = fit_mixture(
+            self.data_prior,
+            self.uncertainty,
+            self.valid,
+            kps_scaled,
+            self.data_prior_at_kps(self.kps),
+            candidates,
+            radius=radius,
+            wmin=self.conf.mixture_wmin,
+            sig_floor=self.conf.mixture_sig_floor,
+            sep_min=self.conf.mixture_sep_min,
+            em_iters=self.conf.mixture_em_iters,
+            uniform_weights=self.conf.mixture_uniform_weights,
+        )
+        self.set_mixture(modes, weights, sigmas)
+        self.log(f"Mixture fitted at {candidates.sum()}/{len(candidates)} candidate kps", level=1)
 
     def set_mixture(self, modes, weights, sigmas):
         """Per-keypoint depth mixture, each (num_kps, K): mode depths in the

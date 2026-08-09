@@ -1,5 +1,10 @@
-# Default pipeline (sp-lg + Metric3Dv2) with the max-mixture depth factor.
-# Without per-keypoint mixtures attached (Depth.set_mixture), this runs the
-# degenerate K=1 fallback, which is exactly equivalent to the unimodal factor.
+# Default pipeline (sp-lg + Metric3Dv2) with the max-mixture depth factor and
+# K=2 patch-GMM mixtures fitted at discontinuity-candidate keypoints.
+# Set reconstruction.image.depth.mixture: false to run the degenerate K=1
+# fallback (exactly equivalent to the unimodal factor).
 ba:
   depth_factor: maxmix
+reconstruction:
+  image:
+    depth:
+      mixture: true
