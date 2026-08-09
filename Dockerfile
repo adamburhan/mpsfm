@@ -76,9 +76,9 @@ RUN rm -rf \
 # Not used by the default (runtime) build.
 FROM builder as dev
 # runtime-only conveniences the builder stage lacks: wget (checkpoint
-# downloads in mpsfm/extraction) and the `python` alias
+# downloads), 7z (benchmark dataset extraction) and the `python` alias
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends wget python-is-python3 && \
+    apt-get install -y --no-install-recommends wget p7zip-full python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/requirements.txt
 # mmcv installed separately with --no-build-isolation: its setup.py needs

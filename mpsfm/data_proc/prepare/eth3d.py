@@ -64,8 +64,12 @@ def main(delete_files: bool = True):
         "https://www.eth3d.net/data/multi_view_test_dslr_undistorted.7z",
     ]
 
-    # Download each archive to data_dir
+    # Download each archive to data_dir (skip archives already on disk, e.g.
+    # after a failed extraction)
     for url in urls:
+        if (data_dir / Path(url).name).exists():
+            print(f"Skipping download of {Path(url).name} (already exists)")
+            continue
         print(f"Downloading {Path(url).stem}...")
         subprocess.run(["wget", "-P", str(data_dir), url], check=True)
 
