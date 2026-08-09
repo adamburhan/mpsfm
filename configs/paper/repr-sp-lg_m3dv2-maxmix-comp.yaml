@@ -1,0 +1,19 @@
+# paper/repr-sp-lg_m3dv2-maxmix with the component-based mixture fit:
+# modes/sigmas per connected component of the depth continuity mask, ramp
+# pixels excluded, instead of blind patch EM. Everything else identical to
+# repr-sp-lg_m3dv2-maxmix (uniform weights, no re-anchoring) so the two runs
+# isolate the fitting method.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: components
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix

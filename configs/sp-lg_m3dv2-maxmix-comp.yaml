@@ -1,0 +1,8 @@
+# Local/dev variant: max-mixture factor with the component-based mixture fit.
+ba:
+  depth_factor: maxmix
+reconstruction:
+  image:
+    depth:
+      mixture: true
+      mixture_method: components

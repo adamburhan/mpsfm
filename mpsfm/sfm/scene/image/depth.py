@@ -5,7 +5,7 @@ import numpy as np
 
 from mpsfm.baseclass import BaseClass
 from mpsfm.sfm.scene.image.mixins.priorutils import PriorUtils
-from mpsfm.sfm.scene.image.mixture import fit_mixture
+from mpsfm.sfm.scene.image.mixture import fit_mixture, fit_mixture_components
 from mpsfm.sfm.scene.image.utils import get_continuity_mask
 
 
@@ -29,11 +29,13 @@ class Depth(BaseClass, PriorUtils):
         "depth_uncertainty": 0.0263,  # uncertainty created by multiplying the depth by a constant
         # K=2 patch-GMM mixtures at keypoints for the max-mixture depth factor
         "mixture": False,
+        "mixture_method": "em",  # [em, components]
         "mixture_radius": 6,  # patch radius in depth-map pixels
         "mixture_wmin": 0.05,
         "mixture_sig_floor": 0.05,  # log-sigma floor (~5% relative)
         "mixture_sep_min": 0.1,  # min mode separation in log depth (~10%)
         "mixture_em_iters": 30,
+        "mixture_contour_dilation": 1,  # ramp-pixel exclusion band (components)
         "mixture_uniform_weights": True,
         "verbose": 0,
     }
@@ -158,20 +160,38 @@ class Depth(BaseClass, PriorUtils):
             candidates = np.ones(len(self.kps), dtype=bool)
         candidates &= self.valid_at_kps(self.kps)
 
-        modes, weights, sigmas = fit_mixture(
-            self.data_prior,
-            self.uncertainty,
-            self.valid,
-            kps_scaled,
-            self.data_prior_at_kps(self.kps),
-            candidates,
+        common = dict(
             radius=radius,
             wmin=self.conf.mixture_wmin,
             sig_floor=self.conf.mixture_sig_floor,
             sep_min=self.conf.mixture_sep_min,
-            em_iters=self.conf.mixture_em_iters,
             uniform_weights=self.conf.mixture_uniform_weights,
         )
+        if self.conf.mixture_method == "components" and continuity is not None:
+            modes, weights, sigmas = fit_mixture_components(
+                self.data_prior,
+                self.uncertainty,
+                self.valid,
+                continuity,
+                kps_scaled,
+                self.data_prior_at_kps(self.kps),
+                candidates,
+                contour_dilation=self.conf.mixture_contour_dilation,
+                **common,
+            )
+        else:
+            if self.conf.mixture_method == "components":
+                print("WARNING: no continuity mask available, falling back to EM mixture fit")
+            modes, weights, sigmas = fit_mixture(
+                self.data_prior,
+                self.uncertainty,
+                self.valid,
+                kps_scaled,
+                self.data_prior_at_kps(self.kps),
+                candidates,
+                em_iters=self.conf.mixture_em_iters,
+                **common,
+            )
         self.set_mixture(modes, weights, sigmas)
         self.log(f"Mixture fitted at {candidates.sum()}/{len(candidates)} candidate kps", level=1)
 
