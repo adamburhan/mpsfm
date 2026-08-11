@@ -18,6 +18,7 @@ class ArgsToConf:
         conf.testset_id = args.testset_id
         conf.verbose = args.verbose
         conf.overwrite = args.overwrite
+        conf.save_sparse = getattr(args, "save_sparse", False)
         if return_args:
             return args, conf
         return conf
@@ -46,6 +47,7 @@ class BaseTest:
         "registration_method": {},
         "reconstruction": {},
         "scene": None,
+        "save_sparse": False,
     }
 
     args_to_conf = ArgsToConf
@@ -185,6 +187,10 @@ class BaseTest:
 
                 if extract_only:
                     continue
+                if self.conf.save_sparse:
+                    sparse_dir = init_info["sfm_outputs_dir"] / "sparse" / "0"
+                    sparse_dir.mkdir(parents=True, exist_ok=True)
+                    mpsfm_rec.rec.write(sparse_dir)
                 self.eval_obj.setup(mpsfm_rec, init_info["scene_parser"].rec)
 
                 print(f"Evaluating reconstruction for {init_info['scene']}...")

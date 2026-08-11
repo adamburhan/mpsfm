@@ -19,6 +19,7 @@ parser.add_argument("-e", "--extract", nargs="+", type=str, help="Extract needed
 parser.add_argument("--testset_id", type=int, help="Testset id to run")
 parser.add_argument("-v", "--verbose", type=int, default=0)
 parser.add_argument("-o", "--overwrite", action="store_true", help="Overwrite existing results")
+parser.add_argument("--save_sparse", action="store_true", help="Write colmap-format sparse model to sparse/0")
 parser.add_argument("-s", "--scene", type=str)
 parser.add_argument("-m", "--mode", type=str, default="minimal")
 
