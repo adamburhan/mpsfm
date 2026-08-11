@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 def main():
     parser = ArgumentParser()
     parser.add_argument("-d", "--dataset", choices=["eth3d", "smerf"], default="eth3d")
-    parser.add_argument("--every", type=int, default=8)
+    parser.add_argument("--every", type=int, default=6)
     parser.add_argument("-o", "--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -25,7 +25,7 @@ def main():
         test_imids = sorted(testsets[0])[:: args.every]
 
         with open(out_yaml, "w") as f:
-            yaml.safe_dump({0: test_imids}, f, default_flow_style=False)
+            yaml.safe_dump({0: test_imids}, f, default_flow_style=None)
         print(f"{scene_dir.name}: {len(test_imids)}/{len(sorted(testsets[0]))} test views")
 
 
