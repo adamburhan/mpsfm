@@ -15,6 +15,7 @@ container. Pin the GPU with CUDA_VISIBLE_DEVICES.
 """
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -108,8 +109,12 @@ def main():
             else:
                 print(f"{scene}/{args.conf}: renders exist, skipping")
 
-            # stage 4: standard metrics (PSNR/SSIM/LPIPS over test renders)
-            if not (model_dir / "results.json").exists():
+            # stage 4: standard metrics (PSNR/SSIM/LPIPS over test renders).
+            # Marker must be iteration-aware: results.json may exist from a
+            # run at a different --iterations (metrics.py scores every
+            # test/ours_* dir it finds, so rerunning refreshes all entries).
+            results_file = model_dir / "results.json"
+            if not results_file.exists() or f"ours_{args.iterations}" not in json.load(open(results_file)):
                 run([GS_PYTHON, "metrics.py", "-m", model_dir], cwd=GS_ROOT)
             else:
                 print(f"{scene}/{args.conf}: metrics exist, skipping")

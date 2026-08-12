@@ -1,5 +1,5 @@
 #!/bin/bash
-# Runs INSIDE the container (via smoke.sh). No quoting gymnastics needed here.
+# Runs INSIDE the container (via smoke.sh)
 set -e
 
 echo "=== gpu ==="
