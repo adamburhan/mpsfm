@@ -173,8 +173,15 @@ def main():
     parser.add_argument("-o", "--overwrite", action="store_true")
     args = parser.parse_args()
 
+    failed = []
     for scene in args.scenes:
-        prepare_scene(args.root / "data" / scene, args.out / "data", args.out / "testsets", args.overwrite)
+        try:
+            prepare_scene(args.root / "data" / scene, args.out / "data", args.out / "testsets", args.overwrite)
+        except Exception as e:
+            print(f"{scene}: FAILED — {type(e).__name__}: {e}")
+            failed.append(scene)
+    if failed:
+        print(f"\n{len(failed)} scenes failed: {' '.join(failed)}")
 
 
 if __name__ == "__main__":
