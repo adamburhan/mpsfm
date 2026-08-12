@@ -37,7 +37,7 @@ def run(cmd, cwd):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-d", "--dataset", choices=["eth3d", "smerf"], default="eth3d")
+    parser.add_argument("-d", "--dataset", choices=["eth3d", "smerf", "scannetpp"], default="eth3d")
     parser.add_argument("-c", "--conf", type=str, required=True, help="Config name, e.g. repr-sp-lg_m3dv2")
     parser.add_argument("-m", "--mode", type=str, default="all")
     parser.add_argument("-s", "--scene", type=str, help="Single scene (default: all scenes with a gs_test.yaml)")
