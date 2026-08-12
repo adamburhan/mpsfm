@@ -65,8 +65,8 @@ def main():
             continue
 
         try:
-            # stage 1: source tree
-            test_names_file = src_dir / "test_names.txt"
+            # stage 1: source tree (test.txt is written last = stage marker)
+            test_names_file = src_dir / "sparse" / "0" / "test.txt"
             if not test_names_file.exists():
                 src_dir.mkdir(parents=True, exist_ok=True)
                 images_link = src_dir / "images"
