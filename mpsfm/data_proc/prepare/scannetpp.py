@@ -17,8 +17,11 @@ The GT model is written as COLMAP text files rather than through pycolmap's
 Reconstruction API: pose setters on pycolmap Image objects are incompatible
 across pycolmap versions, so pycolmap is only used to read (stable API).
 
-Poses in transforms_undistorted.json are camera-to-world in OpenCV/COLMAP
-camera axes 
+Poses in transforms_undistorted.json are camera-to-world in the toolkit's
+nerfstudio/instant-ngp convention (camera-axis flip + world-frame swap); we
+invert that exactly and verify against dslr/colmap/images.txt per scene,
+aborting the scene on disagreement. Recovering the COLMAP world frame matters
+beyond the check itself: the scans/ mesh lives in that frame.
 
   python scannetpp.py --root ~/scratch/datasets/scannetpp --out ~/scratch/mpsfm_scannetpp \
       --scenes 09c1414f1b 0d2ee665be ...
@@ -33,15 +36,21 @@ import pycolmap
 import yaml
 from PIL import Image
 
-def cam_from_world(frame):
-    """4x4 COLMAP world-to-camera matrix from a transforms_undistorted frame.
+# The ScanNet++ toolkit (prepare_transforms_json) converts COLMAP c2w to
+# nerfstudio/instant-ngp convention as:
+#   c2w[0:3, 1:3] *= -1          -> right-multiply by CAM_FLIP (camera y,z flip)
+#   c2w = c2w[[1, 0, 2, 3], :]   \
+#   c2w[2, :] *= -1              -> left-multiply by WORLD_SWAP (world frame change)
+# Both matrices are involutions, so undoing is applying them on the same sides.
+CAM_FLIP = np.diag([1.0, -1.0, -1.0, 1.0])
+WORLD_SWAP = np.array([[0, 1, 0, 0], [1, 0, 0, 0], [0, 0, -1, 0], [0, 0, 0, 1]], dtype=np.float64)
 
-    Despite the nerfstudio/ folder name, the ScanNet++ toolkit writes these
-    transform_matrix entries in OpenCV/COLMAP camera axes already (verified:
-    applying the usual OpenGL->OpenCV diag(1,-1,-1) flip makes every pose
-    disagree with dslr/colmap by exactly 180 deg) — so only inversion is needed.
-    """
-    c2w = np.array(frame["transform_matrix"], dtype=np.float64)
+
+def cam_from_world(frame):
+    """4x4 COLMAP world-to-camera matrix from a transforms_undistorted frame,
+    inverting the toolkit's COLMAP->nerfstudio conversion (see above)."""
+    c2w_ns = np.array(frame["transform_matrix"], dtype=np.float64)
+    c2w = WORLD_SWAP @ c2w_ns @ CAM_FLIP
     return np.linalg.inv(c2w)
 
 
