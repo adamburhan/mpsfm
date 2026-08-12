@@ -17,9 +17,8 @@ The GT model is written as COLMAP text files rather than through pycolmap's
 Reconstruction API: pose setters on pycolmap Image objects are incompatible
 across pycolmap versions, so pycolmap is only used to read (stable API).
 
-Poses in transforms_undistorted.json are nerfstudio-convention camera-to-world
-(OpenGL axes: y up, z back). We convert to COLMAP cam_from_world and verify
-against dslr/colmap/images.txt per scene, aborting the scene on disagreement.
+Poses in transforms_undistorted.json are camera-to-world in OpenCV/COLMAP
+camera axes 
 
   python scannetpp.py --root ~/scratch/datasets/scannetpp --out ~/scratch/mpsfm_scannetpp \
       --scenes 09c1414f1b 0d2ee665be ...
@@ -34,13 +33,15 @@ import pycolmap
 import yaml
 from PIL import Image
 
-# right-multiply a nerfstudio/OpenGL c2w to get an OpenCV/COLMAP c2w
-GL_TO_CV = np.diag([1.0, -1.0, -1.0, 1.0])
-
-
 def cam_from_world(frame):
-    """4x4 COLMAP world-to-camera matrix from a nerfstudio frame entry."""
-    c2w = np.array(frame["transform_matrix"], dtype=np.float64) @ GL_TO_CV
+    """4x4 COLMAP world-to-camera matrix from a transforms_undistorted frame.
+
+    Despite the nerfstudio/ folder name, the ScanNet++ toolkit writes these
+    transform_matrix entries in OpenCV/COLMAP camera axes already (verified:
+    applying the usual OpenGL->OpenCV diag(1,-1,-1) flip makes every pose
+    disagree with dslr/colmap by exactly 180 deg) — so only inversion is needed.
+    """
+    c2w = np.array(frame["transform_matrix"], dtype=np.float64)
     return np.linalg.inv(c2w)
 
 
