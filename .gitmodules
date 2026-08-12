@@ -22,3 +22,6 @@
 [submodule "third_party/RoMa"]
 	path = third_party/RoMa
 	url = git@github.com:Parskatt/RoMa.git
+[submodule "third_party/gaussian-splatting"]
+	path = third_party/gaussian-splatting
+	url = git@github.com:adamburhan/gaussian-splatting.git
