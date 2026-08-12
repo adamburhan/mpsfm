@@ -69,7 +69,11 @@ RUN python3 -m venv /opt/gs && \
         submodules/diff-gaussian-rasterization submodules/simple-knn submodules/fused-ssim
 
 ENV TORCH_HOME=/opt/torch-cache
-RUN /opt/gs/bin/python -c "import lpips; lpips.LPIPS(net='vgg')"
+# warm the caches for offline (cluster) use: vgg16 backbone via pip lpips, plus
+# the LPIPS linear-head weights that gaussian-splatting's bundled lpipsPyTorch
+# fetches through torch.hub at first call
+RUN /opt/gs/bin/python -c "import lpips; lpips.LPIPS(net='vgg')" && \
+    /opt/gs/bin/python -c "from torch.hub import load_state_dict_from_url; load_state_dict_from_url('https://raw.githubusercontent.com/richzhang/PerceptualSimilarity/master/lpips/weights/v0.1/vgg.pth', map_location='cpu')"
 
 # Slim stage: clean up dev files to reduce the size of the runtime COPY.
 # Kept separate from builder so the dev stage retains headers and CMake configs.
