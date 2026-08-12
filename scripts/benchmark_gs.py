@@ -20,6 +20,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pycolmap
 import yaml
 
 from mpsfm.test import get_test
@@ -73,6 +74,13 @@ def main():
                     images_link.symlink_to(dataset.data_dir / scene / "images")
                 if not (src_dir / "sparse" / "0").exists():
                     shutil.copytree(sparse_dir, src_dir / "sparse" / "0")
+                    # mpsfm skips COLMAP's color-extraction pass, leaving all
+                    # points3D black — 3DGS initializes SH from these colors
+                    rec = pycolmap.Reconstruction(src_dir / "sparse" / "0")
+                    rec.extract_colors_for_all_images(dataset.data_dir / scene / "images")
+                    rec.write(src_dir / "sparse" / "0")
+                    # gaussian-splatting caches a points3D.ply next to the bins
+                    (src_dir / "sparse" / "0" / "points3D.ply").unlink(missing_ok=True)
                 with open(gs_test_yaml) as f:
                     test_imids = yaml.safe_load(f)[0]
                 scene_parser = test_cls.parser(scene)
