@@ -19,10 +19,8 @@ import json
 import statistics
 from pathlib import Path
 
-import numpy as np
-
-# cv2/h5py imported lazily inside the mask-building functions so that the
-# aggregation half of this module stays importable on bare login-node pythons
+# numpy/cv2/h5py imported lazily inside the mask-building functions so that
+# the aggregation half of this module stays importable on bare login-node pythons
 
 RATIO_T = 1.015  # inherited from mpsfm get_continuity_mask, NOT a free parameter
 
@@ -42,6 +40,8 @@ def _fgbg_depth(d, t):
 
 def continuity_mask(depth):
     # from mpsfm.sfm.scene.image.utils.get_continuity_mask
+    import numpy as np
+
     continuity = np.ones_like(depth, dtype=bool)
     inv_depth = 1.0 / np.clip(depth, 1e-6, None)
     l1, t1, r1, b1 = [~el for el in _fgbg_depth(inv_depth, RATIO_T)]
@@ -55,6 +55,7 @@ def continuity_mask(depth):
 def build_view_mask(depth, valid, render_wh, band_frac):
     """Coded mask (uint8, render resolution) for one view from its mono depth."""
     import cv2
+    import numpy as np
 
     edge = ~continuity_mask(depth)
     radius = max(1, round(band_frac * depth.shape[1]))
@@ -72,6 +73,7 @@ def build_testset_masks(testset_dir: Path, cache_scene_dir: Path, depth_h5: str 
     Uses any completed arm's source tree for the test list and image resolution."""
     import cv2
     import h5py
+    import numpy as np
 
     masks_dir = testset_dir / "masks"
     meta_file = masks_dir / "meta.json"
