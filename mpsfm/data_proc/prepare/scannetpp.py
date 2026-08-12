@@ -4,14 +4,18 @@ Standalone (no mpsfm imports) so it can run on the cluster where the raw
 dataset lives. For each scene it builds:
 
     <out>/data/<scene>/images   -> symlink to dslr/resized_undistorted_images
-    <out>/data/<scene>/rec      -> pycolmap GT reconstruction (PINHOLE camera
-                                   from transforms_undistorted.json, poses for
-                                   all non-bad train+test frames)
+    <out>/data/<scene>/rec      -> COLMAP text model (PINHOLE camera from
+                                   transforms_undistorted.json, poses for all
+                                   non-bad train+test frames)
     <out>/testsets/<scene>/all.yaml      {0: [all image ids]}
     <out>/testsets/<scene>/gs_test.yaml  {0: [official NVS test-frame ids]}
 
 Copy testsets/ into the repo's local/testsets/scannetpp/ and rsync data/
 (with -L to follow the image symlinks) to the machine running the benchmark.
+
+The GT model is written as COLMAP text files rather than through pycolmap's
+Reconstruction API: pose setters on pycolmap Image objects are incompatible
+across pycolmap versions, so pycolmap is only used to read (stable API).
 
 Poses in transforms_undistorted.json are nerfstudio-convention camera-to-world
 (OpenGL axes: y up, z back). We convert to COLMAP cam_from_world and verify
@@ -28,15 +32,38 @@ from pathlib import Path
 import numpy as np
 import pycolmap
 import yaml
+from PIL import Image
+from scipy.spatial.transform import Rotation
 
 # right-multiply a nerfstudio/OpenGL c2w to get an OpenCV/COLMAP c2w
 GL_TO_CV = np.diag([1.0, -1.0, -1.0, 1.0])
 
 
 def cam_from_world(frame):
+    """4x4 COLMAP world-to-camera matrix from a nerfstudio frame entry."""
     c2w = np.array(frame["transform_matrix"], dtype=np.float64) @ GL_TO_CV
-    w2c = np.linalg.inv(c2w)
-    return pycolmap.Rigid3d(w2c[:3])
+    return np.linalg.inv(c2w)
+
+
+def write_text_model(rec_dir, meta, images):
+    """images: list of (image_id, name, w2c 4x4). Empty points3D."""
+    with open(rec_dir / "cameras.txt", "w") as f:
+        f.write("# Camera list with one line of data per camera:\n")
+        f.write("#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n")
+        f.write(f"1 PINHOLE {meta['w']} {meta['h']} {meta['fl_x']} {meta['fl_y']} {meta['cx']} {meta['cy']}\n")
+    with open(rec_dir / "images.txt", "w") as f:
+        f.write("# Image list with two lines of data per image:\n")
+        f.write("#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n")
+        f.write("#   POINTS2D[] as (X, Y, POINT3D_ID)\n")
+        for imid, name, w2c in images:
+            q = Rotation.from_matrix(w2c[:3, :3]).as_quat()  # [x, y, z, w]
+            qw, qx, qy, qz = q[3], q[0], q[1], q[2]
+            tx, ty, tz = w2c[:3, 3]
+            f.write(f"{imid} {qw} {qx} {qy} {qz} {tx} {ty} {tz} 1 {name}\n\n")
+    (rec_dir / "points3D.txt").write_text(
+        "# 3D point list with one line of data per point:\n"
+        "#   POINT3D_ID, X, Y, Z, R, G, B, ERROR, TRACK[] as (IMAGE_ID, POINT2D_IDX)\n"
+    )
 
 
 def verify_against_colmap(scene_dir, images):
@@ -45,12 +72,11 @@ def verify_against_colmap(scene_dir, images):
     ref = pycolmap.Reconstruction(scene_dir / "dslr" / "colmap")
     ref_by_name = {im.name: im for im in ref.images.values()}
     max_dr = 0.0
-    for im in images.values():
-        if im.name not in ref_by_name:
+    for _, name, w2c in images:
+        if name not in ref_by_name:
             continue
-        R_ours = im.cam_from_world.rotation.matrix()
-        R_ref = ref_by_name[im.name].cam_from_world.rotation.matrix()
-        cos = np.clip((np.trace(R_ours @ R_ref.T) - 1) / 2, -1, 1)
+        R_ref = ref_by_name[name].cam_from_world.rotation.matrix()
+        cos = np.clip((np.trace(w2c[:3, :3] @ R_ref.T) - 1) / 2, -1, 1)
         max_dr = max(max_dr, np.degrees(np.arccos(cos)))
     return max_dr
 
@@ -69,43 +95,31 @@ def prepare_scene(scene_dir, out_data, out_testsets, overwrite):
 
     images_dir = scene_dir / "dslr" / "resized_undistorted_images"
     # sanity: json resolution must match the pixels we serve
-    sample = next(images_dir.iterdir())
-    from PIL import Image
-
-    w, h = Image.open(sample).size
+    w, h = Image.open(next(images_dir.iterdir())).size
     assert (w, h) == (meta["w"], meta["h"]), f"{scene}: json {meta['w']}x{meta['h']} vs images {w}x{h}"
 
     train = [fr for fr in meta["frames"] if not fr.get("is_bad", False)]
     test = [fr for fr in meta["test_frames"] if not fr.get("is_bad", False)]
     n_bad = len(meta["frames"]) + len(meta["test_frames"]) - len(train) - len(test)
 
-    rec = pycolmap.Reconstruction()
-    camera = pycolmap.Camera(
-        camera_id=1,
-        model="PINHOLE",
-        width=meta["w"],
-        height=meta["h"],
-        params=[meta["fl_x"], meta["fl_y"], meta["cx"], meta["cy"]],
-    )
-    rec.add_camera(camera)
-
     frames = sorted(train + test, key=lambda fr: fr["file_path"])
     test_names = {fr["file_path"] for fr in test}
-    test_ids = []
+    images, test_ids = [], []
     for imid, fr in enumerate(frames, start=1):
-        image = pycolmap.Image(image_id=imid, camera_id=1, name=fr["file_path"])
-        image.cam_from_world = cam_from_world(fr)
-        rec.add_image(image)
+        images.append((imid, fr["file_path"], cam_from_world(fr)))
         if fr["file_path"] in test_names:
             test_ids.append(imid)
 
-    max_dr = verify_against_colmap(scene_dir, rec.images)
+    max_dr = verify_against_colmap(scene_dir, images)
     if max_dr > 0.1:
         print(f"{scene}: POSE MISMATCH vs colmap model ({max_dr:.3f} deg) — SKIPPED, investigate")
         return
 
     rec_dir.mkdir(parents=True, exist_ok=True)
-    rec.write(rec_dir)
+    write_text_model(rec_dir, meta, images)
+    rec = pycolmap.Reconstruction(rec_dir)  # sanity: model parses
+    assert rec.num_images() == len(images), f"{scene}: wrote {len(images)} images, read {rec.num_images()}"
+
     images_link = out_data / scene / "images"
     if not images_link.exists():
         images_link.symlink_to(images_dir.resolve())
@@ -113,12 +127,12 @@ def prepare_scene(scene_dir, out_data, out_testsets, overwrite):
     testset_dir = out_testsets / scene
     testset_dir.mkdir(parents=True, exist_ok=True)
     with open(testset_dir / "all.yaml", "w") as f:
-        yaml.safe_dump({0: sorted(rec.images.keys())}, f, default_flow_style=None)
+        yaml.safe_dump({0: [imid for imid, _, _ in images]}, f, default_flow_style=None)
     with open(testset_dir / "gs_test.yaml", "w") as f:
         yaml.safe_dump({0: sorted(test_ids)}, f, default_flow_style=None)
 
     print(
-        f"{scene}: {len(frames)} images ({len(test_ids)} test, {n_bad} bad excluded), "
+        f"{scene}: {len(images)} images ({len(test_ids)} test, {n_bad} bad excluded), "
         f"pose check {max_dr:.4f} deg"
     )
 
