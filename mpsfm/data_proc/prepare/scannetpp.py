@@ -90,7 +90,10 @@ def verify_against_colmap(scene_dir, images):
     for _, name, w2c in images:
         if name not in ref_by_name:
             continue
-        R_ref = ref_by_name[name].cam_from_world.rotation.matrix()
+        cfw = ref_by_name[name].cam_from_world
+        if callable(cfw):  # method vs property across pycolmap versions
+            cfw = cfw()
+        R_ref = cfw.rotation.matrix()
         cos = np.clip((np.trace(w2c[:3, :3] @ R_ref.T) - 1) / 2, -1, 1)
         max_dr = max(max_dr, np.degrees(np.arccos(cos)))
     return max_dr
