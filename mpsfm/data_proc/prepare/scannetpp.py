@@ -33,7 +33,6 @@ import numpy as np
 import pycolmap
 import yaml
 from PIL import Image
-from scipy.spatial.transform import Rotation
 
 # right-multiply a nerfstudio/OpenGL c2w to get an OpenCV/COLMAP c2w
 GL_TO_CV = np.diag([1.0, -1.0, -1.0, 1.0])
@@ -43,6 +42,23 @@ def cam_from_world(frame):
     """4x4 COLMAP world-to-camera matrix from a nerfstudio frame entry."""
     c2w = np.array(frame["transform_matrix"], dtype=np.float64) @ GL_TO_CV
     return np.linalg.inv(c2w)
+
+
+def rotmat_to_quat_wxyz(R):
+    """Rotation matrix -> unit quaternion (w, x, y, z), no scipy dependency."""
+    K = np.array(
+        [
+            [R[0, 0] - R[1, 1] - R[2, 2], 0, 0, 0],
+            [R[0, 1] + R[1, 0], R[1, 1] - R[0, 0] - R[2, 2], 0, 0],
+            [R[0, 2] + R[2, 0], R[1, 2] + R[2, 1], R[2, 2] - R[0, 0] - R[1, 1], 0],
+            [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1], R[0, 0] + R[1, 1] + R[2, 2]],
+        ]
+    ) / 3.0
+    K = K + K.T - np.diag(np.diag(K))
+    vals, vecs = np.linalg.eigh(K)
+    x, y, z, w = vecs[:, np.argmax(vals)]
+    q = np.array([w, x, y, z])
+    return q if w >= 0 else -q
 
 
 def write_text_model(rec_dir, meta, images):
@@ -56,8 +72,7 @@ def write_text_model(rec_dir, meta, images):
         f.write("#   IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n")
         f.write("#   POINTS2D[] as (X, Y, POINT3D_ID)\n")
         for imid, name, w2c in images:
-            q = Rotation.from_matrix(w2c[:3, :3]).as_quat()  # [x, y, z, w]
-            qw, qx, qy, qz = q[3], q[0], q[1], q[2]
+            qw, qx, qy, qz = rotmat_to_quat_wxyz(w2c[:3, :3])
             tx, ty, tz = w2c[:3, 3]
             f.write(f"{imid} {qw} {qx} {qy} {qz} {tx} {ty} {tz} 1 {name}\n\n")
     (rec_dir / "points3D.txt").write_text(
