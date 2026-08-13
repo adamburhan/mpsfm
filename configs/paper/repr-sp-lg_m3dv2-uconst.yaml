@@ -1,0 +1,15 @@
+# Engagement-sweep control arm: repr-sp-lg_m3dv2 with the calibrated depth
+# uncertainty replaced by a constant 1% relative uncertainty. Must stay
+# identical to repr-sp-lg_m3dv2-maxmix-em-uconst except mixture/ba settings.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      prior_uncertainty: false
+      depth_uncertainty: 0.01
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
