@@ -2,7 +2,6 @@
 # uncertainty replaced by a constant 1% relative uncertainty. Must stay
 # identical to repr-sp-lg_m3dv2-maxmix-em-uconst except mixture/ba settings.
 reconstruction:
-  integrate: false
   image:
     normals:
       flip_consistency: true
@@ -16,3 +15,5 @@ dataset:
   resize_max: null
 ba:
   scale_filter: false
+
+integrate: false

@@ -2,7 +2,6 @@
 # uncertainty, tightened mixture sigmas/separation so the bimodal factors
 # actually bite. Identical to repr-sp-lg_m3dv2-uconst except mixture/ba.
 reconstruction:
-  integrate: false
   image:
     normals:
       flip_consistency: true
@@ -22,3 +21,4 @@ dataset:
 ba:
   depth_factor: maxmix
   scale_filter: false
+integrate: false
