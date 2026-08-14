@@ -5,11 +5,13 @@ reconstruction:
   image:
     normals:
       flip_consistency: true
-    depth:
-      prior_uncertainty: false
-      depth_uncertainty: 0.01
+    # depth:
+      # prior_uncertainty: false
+      # depth_uncertainty: 0.01
 extractors:
   depth: metric3dv2-nfc
   normals: metric3dv2-nfc
 dataset:
   resize_max: null
+ba:
+  scale_filter: false

@@ -6,8 +6,8 @@ reconstruction:
     normals:
       flip_consistency: true
     depth:
-      prior_uncertainty: false
-      depth_uncertainty: 0.01
+      # prior_uncertainty: false
+      # depth_uncertainty: 0.01
       mixture: true
       mixture_method: em
       mixture_radius: 4
@@ -20,3 +20,4 @@ dataset:
   resize_max: null
 ba:
   depth_factor: maxmix
+  scale_filter: false
