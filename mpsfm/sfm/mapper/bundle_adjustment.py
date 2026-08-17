@@ -138,14 +138,29 @@ class Optimizer(BaseClass):
             p2Ds = p2Ds[valid]
             p3Ds = image.point3D_ids(p2Ds)
             _, _, _, depth3d, _ = self.mpsfm_rec.project_image_3d_points(imid, p3Ds)
+            mixture = image.depth.mixture_at_kps(p2Ds) if self.conf.depth_factor == "maxmix" else None
+            if mixture is not None:
+                # rows with a real second mode; degenerate rows keep the
+                # unimodal gate behavior exactly
+                multi = np.abs(np.log(mixture[0][:, 1].clip(1e-6, None)) - np.log(mixture[0][:, 0].clip(1e-6, None))) > 1e-9
+                log_div_modes = np.log(mixture[0].clip(1e-6, None)) - np.log(depth3d.clip(1e-6, None))[:, None]
             mask = depths > 0
             if allow_scale_filter and self.conf.scale_filter:
                 div = depths / depth3d
-                mask *= (div < scale_filter_factor) * (div > (1 / scale_filter_factor))
+                admit = (div < scale_filter_factor) * (div > (1 / scale_filter_factor))
+                if mixture is not None:
+                    # min-over-modes admission: keep points that any mode of
+                    # the factor's own mixture explains
+                    admit |= multi & (np.abs(log_div_modes) < np.log(scale_filter_factor)).any(axis=1)
+                mask *= admit
             uncertainty_update = image.depth.uncertainty_update
             variances = np.array([uncertainty_update[pt2D_id] for pt2D_id in p2Ds])
             if gross_outliers and image.depth.activated:
                 whitened = np.abs(np.log(depths).clip(1e-6, None) - np.log(depth3d).clip(1e-6, None)) / variances**0.5
+                if mixture is not None:
+                    # winning-mode whitening, same observation model as the factor
+                    whitened_modes = (np.abs(log_div_modes) / mixture[2].clip(1e-6, None)).min(axis=1)
+                    whitened = np.where(multi, np.minimum(whitened, whitened_modes), whitened)
                 mask *= whitened < 3
 
             if np.sum(mask) == 0:
@@ -161,7 +176,6 @@ class Optimizer(BaseClass):
             m = param_multiplier * self.conf.rob_std
 
             if self.conf.depth_factor == "maxmix":
-                mixture = image.depth.mixture_at_kps(p2Ds)
                 if mixture is None:
                     # degenerate K=1 mixture from the unimodal prior; verified
                     # equivalent to the unimodal factor
@@ -169,7 +183,7 @@ class Optimizer(BaseClass):
                     weights = np.ones_like(modes)
                     sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
                 else:
-                    modes, weights, sigmas = mixture
+                    modes, weights, sigmas = (a[mask] for a in mixture)
                 # residuals are whitened inside the factor: no magnitudes, and
                 # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
