@@ -13,3 +13,7 @@ ETH3D_EXP_DIR = Path(ROOT, "local/benchmarks/eth3d/experiments")
 SCANNETPP_DATA_DIR = Path(ROOT, "local/benchmarks/scannetpp/data")
 SCANNETPP_CACHE_DIR = Path(ROOT, "local/benchmarks/scannetpp/cache_dir")
 SCANNETPP_EXP_DIR = Path(ROOT, "local/benchmarks/scannetpp/experiments")
+
+REPLICA_DATA_DIR = Path(ROOT, "local/benchmarks/replica/data")
+REPLICA_CACHE_DIR = Path(ROOT, "local/benchmarks/replica/cache_dir")
+REPLICA_EXP_DIR = Path(ROOT, "local/benchmarks/replica/experiments")

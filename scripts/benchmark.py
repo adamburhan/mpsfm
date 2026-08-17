@@ -9,7 +9,7 @@ from mpsfm.vars import gvars
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "-d", "--dataset", choices=["eth3d", "smerf", "scannetpp"], default="eth3d", help="Dataset to use."
+    "-d", "--dataset", choices=["eth3d", "smerf", "scannetpp", "replica"], default="eth3d", help="Dataset to use."
 )
 parser.add_argument(
     "-c", "--conf", type=str, default="paper/repr-sp-lg_m3dv2", help="Config file name in SFM_CONFIG_DIR"
