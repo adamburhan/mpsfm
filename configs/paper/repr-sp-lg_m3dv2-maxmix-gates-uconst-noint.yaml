@@ -1,0 +1,26 @@
+# Engagement pair, maxmix arm: constant 1% relative depth uncertainty +
+# tightened EM mixtures, min-over-modes BA gates code (Aug 16 2026),
+# integration OFF. With ba.scale_filter false, the live BA gate is the
+# gross-outlier check, now whitened by the winning mode. MUST stay identical
+# to repr-sp-lg_m3dv2-uconst-noint except mixture/ba.depth_factor.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      prior_uncertainty: false
+      depth_uncertainty: 0.01
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  scale_filter: false
+integrate: false

@@ -1,0 +1,22 @@
+# Identical settings to repr-sp-lg_m3dv2-maxmix; the separate name marks the
+# min-over-modes BA gates code state (bundle_adjustment.py, Aug 16 2026:
+# scale-filter admission + gross-outlier whitening against the factor's own
+# mixture, auto-active when depth_factor=maxmix and mixtures are fitted).
+# Compare against the pre-gates repr-sp-lg_m3dv2-maxmix results on disk.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix

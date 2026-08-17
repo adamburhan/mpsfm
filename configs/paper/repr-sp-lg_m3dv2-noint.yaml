@@ -1,0 +1,13 @@
+# repr baseline with mpsfm's depth integration OFF (BA consumes the raw
+# mono prior, depth_type=prior). Matched control for
+# repr-sp-lg_m3dv2-maxmix-gates-noint — keep identical except mixture/ba.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+integrate: false

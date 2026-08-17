@@ -1,0 +1,19 @@
+# Engagement pair, unimodal arm: constant 1% relative depth uncertainty
+# (calibrated uncertainty off) so the depth factors demonstrably bite, with
+# integration OFF (BA consumes the raw mono prior). MUST stay identical to
+# repr-sp-lg_m3dv2-maxmix-gates-uconst-noint except mixture/ba.depth_factor.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      prior_uncertainty: false
+      depth_uncertainty: 0.01
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  scale_filter: false
+integrate: false

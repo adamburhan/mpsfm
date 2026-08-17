@@ -1,0 +1,23 @@
+# maxmix + min-over-modes BA gates (code state Aug 16 2026) with integration
+# OFF: BA consumes the raw mono prior (depth_type=prior), so the factor and
+# the gates see the same observation model the mixture was fitted on, and the
+# D*-feedback overwrite mechanism is removed. Matched control:
+# repr-sp-lg_m3dv2-noint — identical except mixture/ba.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+integrate: false
