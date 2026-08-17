@@ -21,6 +21,10 @@ class Optimizer(BaseClass):
 
     default_conf = {
         "depth_factor": "unimodal",  # [unimodal, maxmix]
+        # ablation: keep the mixture's anchor mode + fitted sigma but drop mode 1
+        # (rows become degenerate -> exact unimodal factor behavior, gates off).
+        # Isolates the sigma-reweighting effect from multimodality.
+        "mixture_collapse_anchor": False,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -141,6 +145,8 @@ class Optimizer(BaseClass):
             p3Ds = image.point3D_ids(p2Ds)
             _, _, _, depth3d, _ = self.mpsfm_rec.project_image_3d_points(imid, p3Ds)
             mixture = image.depth.mixture_at_kps(p2Ds) if self.conf.depth_factor == "maxmix" else None
+            if mixture is not None and self.conf.mixture_collapse_anchor:
+                mixture = tuple(np.repeat(a[:, :1], a.shape[1], axis=1) for a in mixture)
             if mixture is not None:
                 # rows with a real second mode; degenerate rows keep the
                 # unimodal gate behavior exactly
