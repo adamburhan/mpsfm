@@ -22,6 +22,7 @@ EXP_DIRS = {
     "eth3d": lvars.ETH3D_EXP_DIR,
     "smerf": lvars.SMERF_EXP_DIR,
     "scannetpp": lvars.SCANNETPP_EXP_DIR,
+    "replica": lvars.REPLICA_EXP_DIR,
 }
 
 parser = ArgumentParser()
