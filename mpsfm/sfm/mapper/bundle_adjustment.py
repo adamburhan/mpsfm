@@ -25,6 +25,10 @@ class Optimizer(BaseClass):
         # (rows become degenerate -> exact unimodal factor behavior, gates off).
         # Isolates the sigma-reweighting effect from multimodality.
         "mixture_collapse_anchor": False,
+        # v1 fix: degenerate rows use the current obs depth + calibrated sigma
+        # (exact unimodal-factor behavior) instead of the frozen fitted mode;
+        # maxmix then differs from baseline only at genuinely bimodal kps.
+        "mixture_degenerate_unimodal": False,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -209,6 +213,10 @@ class Optimizer(BaseClass):
                     sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
                 else:
                     modes, weights, sigmas = (a[mask] for a in mixture)
+                    if self.conf.mixture_degenerate_unimodal:
+                        deg = ~multi[mask]
+                        modes = np.where(deg[:, None], depths[:, None], modes)
+                        sigmas = np.where(deg[:, None], (variances**0.5 / depths).clip(1e-6, None)[:, None], sigmas)
                 # residuals are whitened inside the factor: no magnitudes, and
                 # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
