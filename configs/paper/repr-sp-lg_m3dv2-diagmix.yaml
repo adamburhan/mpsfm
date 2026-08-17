@@ -1,0 +1,20 @@
+# Passive-mixture baseline for Rung-3 diagnostics: reconstruction is bit-exact
+# repr-sp-lg_m3dv2 (the unimodal BA factor never reads the mixture; gates are
+# maxmix-only), but the same mixture as repr-sp-lg_m3dv2-maxmix is fitted so BA
+# diag dumps (MPSFM_DIAG_DIR) record the mode hypotheses at every keypoint.
+# Keep the mixture block in lockstep with the maxmix config.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null

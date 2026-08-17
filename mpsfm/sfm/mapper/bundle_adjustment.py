@@ -5,6 +5,7 @@ from pyceres import Problem
 from pycolmap import LossFunctionType
 
 from mpsfm.baseclass import BaseClass
+from mpsfm.utils import diag
 
 
 def fit_robust_gaussian_mad(data):
@@ -109,6 +110,7 @@ class Optimizer(BaseClass):
         scale_filter_factor = self.conf.scale_filter_factor
         gross_outliers = self.conf.gross_outliers
         param_multiplier *= self.truncation_multiplier
+        diag_records = {}
 
         for ii, imid in enumerate(optim_ids):
             image = self.mpsfm_rec.images[imid]
@@ -162,6 +164,23 @@ class Optimizer(BaseClass):
                     whitened_modes = (np.abs(log_div_modes) / mixture[2].clip(1e-6, None)).min(axis=1)
                     whitened = np.where(multi, np.minimum(whitened, whitened_modes), whitened)
                 mask *= whitened < 3
+
+            if diag.enabled():
+                # snapshot of everything BA sees for this image, pre-mask;
+                # finalized with post-solve depths after solve() below
+                diag_records[imid] = {
+                    "p2Ds": p2Ds.copy(),
+                    "p3Ds": np.asarray(p3Ds).copy(),
+                    "kps": kps_with3D.copy(),
+                    "obs_depths": depths.copy(),
+                    "prior_depths": (
+                        depths.copy() if depth_type != "update" else image.depth.data_prior_at_kps(kps_with3D)
+                    ),
+                    "variances": variances.copy(),
+                    "d3d_pre": depth3d.copy(),
+                    "in_ba": mask.copy().astype(bool),
+                    "diag_mixture": image.depth.mixture_at_kps(p2Ds) if image.depth.mixture is not None else None,
+                }
 
             if np.sum(mask) == 0:
                 print("No valid points for depth regularizing")
@@ -226,6 +245,26 @@ class Optimizer(BaseClass):
                 problem.set_manifold(shift_scale[imid], pyceres.SubsetManifold(2, fix_shiftscale))
 
         self.solve(problem)
+        if diag.enabled():
+            for dimid, drec in diag_records.items():
+                dmix = drec.pop("diag_mixture")
+                _, _, _, d3d_post, _ = self.mpsfm_rec.project_image_3d_points(dimid, drec["p3Ds"])
+                dimage = self.mpsfm_rec.images[dimid]
+                diag.dump(
+                    f"ba_{dimid}",
+                    name=dimage.name,
+                    depth_type=depth_type,
+                    depth_factor=conf.depth_factor,
+                    ba_mode=str(mode),
+                    fix_pose=fix_pose,
+                    allow_scale_filter=allow_scale_filter,
+                    depth_scale=float(dimage.depth.scale),
+                    d3d_post=d3d_post,
+                    modes=None if dmix is None else dmix[0],
+                    mode_weights=None if dmix is None else dmix[1],
+                    mode_sigmas=None if dmix is None else dmix[2],
+                    **drec,
+                )
         return bundler, shift_scale
 
     def __build_shiftscale_problem(
