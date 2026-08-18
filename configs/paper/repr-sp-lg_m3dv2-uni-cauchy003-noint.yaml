@@ -1,0 +1,18 @@
+# Fixed-sigma battery arm 1/3 (Unimodal-Cauchy-0.03): MP-SfM unimodal depth
+# factor with Cauchy loss and a constant sigma = 0.03 log-depth for every
+# depth observation (fixed_log_sigma replaces the calibrated per-pixel
+# uncertainties in all BA consumers). Integration OFF so all arms consume the
+# raw mono prior the 0.03 conditional sigma was measured on. Matched arms:
+# repr-sp-lg_m3dv2-maxmix-cauchy003-noint, repr-sp-lg_m3dv2-maxmix-null003-noint.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  fixed_log_sigma: 0.03
+integrate: false

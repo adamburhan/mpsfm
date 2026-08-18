@@ -1,0 +1,25 @@
+# Fixed-sigma battery arm 2/3 (Maxmix-Cauchy-0.03): FG/BG max-mixture, NO
+# null mode, Cauchy loss, constant sigma = 0.03 log-depth for both physical
+# modes (fixed_log_sigma overrides the fitted mixture sigmas and the
+# calibrated uncertainties; gates whiten with the same 0.03). Isolates the
+# effect of the second surface hypothesis vs the unimodal arm. Matched arms:
+# repr-sp-lg_m3dv2-uni-cauchy003-noint, repr-sp-lg_m3dv2-maxmix-null003-noint.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  fixed_log_sigma: 0.03
+integrate: false

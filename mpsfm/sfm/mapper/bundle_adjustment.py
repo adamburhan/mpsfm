@@ -30,6 +30,14 @@ class Optimizer(BaseClass):
         "metric_scale_filter": True,
         "rob_std": 2,
         "truncation_mode": "mad",  # [quantile, mad]
+        # fixed-sigma battery: constant log-depth sigma for every depth
+        # observation, overriding the calibrated per-pixel uncertainties in
+        # all BA consumers (factor params, magnitudes, gates, truncation)
+        "fixed_log_sigma": None,
+        # maxmix only: append a broad low-weight null mode (F/B/null model)
+        "null_component": False,
+        "null_sigma": 1.0,  # log-depth sigma of the null mode
+        "null_weight": 0.2,  # weight of the null mode (only ratios matter)
         # dev
         "gross_outliers": False,
         "single_rescale": True,
@@ -39,6 +47,7 @@ class Optimizer(BaseClass):
 
     def _init(self, mpsfm_rec, correspondences):
         assert self.conf.depth_factor in ["unimodal", "maxmix"], f"Invalid depth_factor {self.conf.depth_factor}"
+        assert not self.conf.null_component or self.conf.depth_factor == "maxmix", "null_component requires maxmix"
         self.mpsfm_rec = mpsfm_rec
         self.correspondences = correspondences
 
@@ -141,6 +150,10 @@ class Optimizer(BaseClass):
             p3Ds = image.point3D_ids(p2Ds)
             _, _, _, depth3d, _ = self.mpsfm_rec.project_image_3d_points(imid, p3Ds)
             mixture = image.depth.mixture_at_kps(p2Ds) if self.conf.depth_factor == "maxmix" else None
+            fixed_sigma = self.conf.fixed_log_sigma
+            if mixture is not None and fixed_sigma is not None:
+                # override BEFORE the gates so gating and factor whiten identically
+                mixture = (mixture[0], mixture[1], np.full_like(mixture[2], fixed_sigma))
             if mixture is not None:
                 # rows with a real second mode; degenerate rows keep the
                 # unimodal gate behavior exactly
@@ -157,6 +170,11 @@ class Optimizer(BaseClass):
                 mask *= admit
             uncertainty_update = image.depth.uncertainty_update
             variances = np.array([uncertainty_update[pt2D_id] for pt2D_id in p2Ds])
+            if fixed_sigma is not None:
+                # linear-depth variance giving a constant log sigma, so every
+                # downstream consumer (params, magnitudes, degenerate-mixture
+                # sigmas) sees exactly fixed_sigma
+                variances = (fixed_sigma * depths.clip(1e-6, None)) ** 2
             if gross_outliers and image.depth.activated:
                 whitened = np.abs(np.log(depths).clip(1e-6, None) - np.log(depth3d).clip(1e-6, None)) / variances**0.5
                 if mixture is not None:
@@ -202,6 +220,17 @@ class Optimizer(BaseClass):
                     sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
                 else:
                     modes, weights, sigmas = (a[mask] for a in mixture)
+                if self.conf.null_component:
+                    # F/B/null: broad low-weight extra mode centered on the
+                    # anchor. It wins mode selection when every physical mode k
+                    # sits more than sqrt(2*ln(null_sigma*w_k/(sigma_k*w_null)))
+                    # whitened sigmas away (~3 sigma at the defaults with
+                    # sigma=0.03, w=0.5), and its own residual is near-flat.
+                    # Weight normalization is irrelevant: selection depends
+                    # only on sigma_k/w_k ratios.
+                    modes = np.concatenate([modes, modes[:, :1]], axis=1)
+                    weights = np.concatenate([weights, np.full((len(modes), 1), self.conf.null_weight)], axis=1)
+                    sigmas = np.concatenate([sigmas, np.full((len(modes), 1), self.conf.null_sigma)], axis=1)
                 # residuals are whitened inside the factor: no magnitudes, and
                 # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
@@ -406,6 +435,8 @@ class Optimizer(BaseClass):
         dstds = np.concatenate(dstds)
 
         log_stds = dstds / depths
+        if self.conf.fixed_log_sigma is not None:
+            log_stds = np.full_like(log_stds, self.conf.fixed_log_sigma)
         log_stds = np.clip(log_stds, 1e-6, None)
         log_distances = np.log(depths) - np.log(depth3ds)
         witened_log_distances = log_distances / log_stds

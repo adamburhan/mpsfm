@@ -1,0 +1,28 @@
+# Fixed-sigma battery arm 3/3 (Maxmix-null-0.03): FG/BG/null max-mixture with
+# TRIVIAL outer loss — robustness comes only from the explicit null mode
+# (sigma=1.0 log-depth, weight 0.2 => null wins when every physical mode is
+# ~3 whitened sigmas away; near-flat residual once selected). Both physical
+# modes have constant sigma = 0.03 log-depth. Isolates explicit null handling
+# vs Cauchy on the same FG/BG model. Matched arms:
+# repr-sp-lg_m3dv2-uni-cauchy003-noint, repr-sp-lg_m3dv2-maxmix-cauchy003-noint.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  depth_loss_name: trivial
+  fixed_log_sigma: 0.03
+  null_component: true
+integrate: false
