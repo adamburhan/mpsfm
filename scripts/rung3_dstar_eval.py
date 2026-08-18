@@ -68,12 +68,17 @@ def main():
         (eb, bandb, okb), (em, bandm, okm) = rows
         band = bandb & bandm & okb & okm  # shared band, both valid
         rest = ~bandb & ~bandm & okb & okm
+        lg = np.log(gt.clip(1e-6, None))
+        contrast = ndimage.grey_dilation(lg, 3) - ndimage.grey_erosion(lg, 3)
+        contested = band & (contrast > 0.1)  # band pixels where GT truly holds two surfaces
+        stats.setdefault("contested", [[], []])
+        stats["contested"][0].append(eb[contested]); stats["contested"][1].append(em[contested])
         stats["band"][0].append(eb[band]); stats["band"][1].append(em[band])
         stats["rest"][0].append(eb[rest]); stats["rest"][1].append(em[rest])
         wins[0] += int((em[band] < eb[band] - 0.005).sum())
         wins[1] += int((eb[band] < em[band] - 0.005).sum())
 
-    for region in ("band", "rest"):
+    for region in ("band", "contested", "rest"):
         b = np.concatenate(stats[region][0]); m = np.concatenate(stats[region][1])
         print(f"{region:>5}: n={len(b)/1e6:.2f}M  base med {np.median(b):.4f}  bimodal med {np.median(m):.4f}  "
               f"delta {np.median(b) - np.median(m):+.4f}  p90 {np.percentile(b, 90):.4f}->{np.percentile(m, 90):.4f}")
