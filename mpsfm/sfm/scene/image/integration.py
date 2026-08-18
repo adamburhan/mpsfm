@@ -321,6 +321,31 @@ class Integration(IntVars):
         other_out = np.where(sep >= self.conf.bimodal_sep_min, other_out, own_out)
         return [own_out, other_out], band
 
+    def _seed_band_from_anchors(self, z, alt_logs, sparse_ids, sparse_depth, radius=12):
+        """Seed band pixels within `radius` (integration px) of an admitted anchor
+        to whichever candidate matches that anchor's multiview depth."""
+        from scipy.spatial import cKDTree
+
+        band = cp.asnumpy(self._alt_band_flat) if device_g == "cuda" else self._alt_band_flat
+        ids = cp.asnumpy(sparse_ids) if device_g == "cuda" else np.asarray(sparse_ids)
+        sd = cp.asnumpy(sparse_depth) if device_g == "cuda" else np.asarray(sparse_depth)
+        W = self.camera.nshape[1]
+        band_idx = np.flatnonzero(band)
+        anchors_xy = np.stack([ids % W, ids // W], 1).astype(float)
+        dist, nearest = cKDTree(anchors_xy).query(np.stack([band_idx % W, band_idx // W], 1).astype(float))
+        near = dist <= radius
+        if not near.any():
+            return z
+        tgt_idx = band_idx[near]
+        anchor_log = sd[nearest[near]]
+        cands = [cp.asnumpy(c[tgt_idx]) if device_g == "cuda" else np.asarray(c[tgt_idx]) for c in alt_logs]
+        z_np = cp.asnumpy(z) if device_g == "cuda" else np.array(z, copy=True)
+        best = z_np[tgt_idx]  # raw init competes too: no seed unless a candidate explains the anchor better
+        for c in cands:
+            best = np.where(np.abs(c - anchor_log) < np.abs(best - anchor_log), c, best)
+        z_np[tgt_idx] = best
+        return cp.asarray(z_np) if device_g == "cuda" else z_np
+
     def _select_prior(self, z, z_prior, alt_logs):
         """Per-pixel candidate nearest to current z (the b_vec observation)."""
         if alt_logs is None:
@@ -457,10 +482,6 @@ class Integration(IntVars):
         depth_precision, z_prior, valid_mask, alt_logs = self.process_depth_prior()
         nx, ny, nz, Vnx, Vny, Vnz = self.process_normals_prior(valid_mask)
         z = self.load_depth_checkpoint()
-        if alt_logs is not None and not self.integrated and self.conf.bimodal_seed_band:
-            # first integration: seed band pixels from the de-smeared own-surface
-            # candidate instead of the smeared prior (breaks ramp lock-in)
-            z = cp.where(self._alt_band_flat, alt_logs[0], z)
         sparse_ids, sparse_precision, sparse_depth = self.process_sparse_depth(depth3d, zvars3d, kps)
 
         if self.conf.scale_filter:
@@ -474,6 +495,12 @@ class Integration(IntVars):
             sparse_ids = sparse_ids[valid.get() if device_g == "cuda" else valid]
             sparse_precision = sparse_precision[valid]
             sparse_depth = sparse_depth[valid]
+
+        if alt_logs is not None and not self.integrated and self.conf.bimodal_seed_band and len(sparse_ids) > 0:
+            # first integration: seed band pixels near ADMITTED anchors to the
+            # candidate matching the anchor's multiview depth (evidence-driven;
+            # pixels without nearby evidence keep the safe smeared init)
+            z = self._seed_band_from_anchors(z, alt_logs, sparse_ids, sparse_depth)
 
         Nz, Nu_precision, Nv_precision = self.init_int_vars(
             z,
