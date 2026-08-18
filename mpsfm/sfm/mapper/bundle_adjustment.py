@@ -21,36 +21,15 @@ class Optimizer(BaseClass):
 
     default_conf = {
         "depth_factor": "unimodal",  # [unimodal, maxmix]
-        # ablation: keep the mixture's anchor mode + fitted sigma but drop mode 1
-        # (rows become degenerate -> exact unimodal factor behavior, gates off).
-        # Isolates the sigma-reweighting effect from multimodality.
-        "mixture_collapse_anchor": False,
-        # v1 fix: degenerate rows use the current obs depth + calibrated sigma
-        # (exact unimodal-factor behavior) instead of the frozen fitted mode;
-        # maxmix then differs from baseline only at genuinely bimodal kps.
-        "mixture_degenerate_unimodal": False,
-        # positive-control / authority knob: multiply mixture sigmas before the
-        # factor (0.05 = 20x confidence). 1.0 = no-op.
-        "mixture_sigma_scale": 1.0,
-        # restrict mixture_sigma_scale to genuinely bimodal rows (conditional-
-        # sigma semantics: ambiguity is split out only where two modes exist;
-        # smooth-kp marginal sigma is already correct).
+        # maxmix ablation dial (paper arms; all default-off = production factor)
+        "mixture_collapse_anchor": False,  # drop mode 1 (sigma/obs-source arm)
+        "mixture_degenerate_unimodal": False,  # degenerate rows = exact unimodal path
+        "mixture_sigma_scale": 1.0,  # sigma multiplier (conditional-sigma / control arms)
         "mixture_sigma_scale_bimodal_only": False,
-        # Olson-style null component: appended as an extra mode (anchor value,
-        # huge sigma) so robustness lives inside the selection; use with
-        # depth_loss_name: trivial. 0.0 = off.
-        "mixture_null_weight": 0.0,
+        "mixture_null_weight": 0.0,  # Olson null component (with trivial loss)
         "mixture_null_sigma": 3.0,
-        # information de-duplication for spatially correlated prior errors:
-        # per-point N_eff under equicorrelation (rho, radius MEASURED on
-        # Replica battery: rho~0.8 within 32px same-surface). 0.0 = off.
-        "depth_info_dedup_rho": 0.0,
+        "depth_info_dedup_rho": 0.0,  # correlated-evidence N_eff correction (measured rho/radius)
         "depth_info_dedup_radius": 32.0,
-        # controls: shuffle permutes the per-point multipliers within each
-        # image (same total information, spatial correspondence destroyed);
-        # uniform applies one global sigma multiplier instead (>0 = on).
-        "depth_info_dedup_shuffle": False,
-        "depth_info_dedup_uniform": 0.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -173,9 +152,9 @@ class Optimizer(BaseClass):
             mixture = image.depth.mixture_at_kps(p2Ds) if self.conf.depth_factor == "maxmix" else None
             if mixture is not None and self.conf.mixture_collapse_anchor:
                 mixture = tuple(np.repeat(a[:, :1], a.shape[1], axis=1) for a in mixture)
+            multi = None
             if mixture is not None:
-                # rows with a real second mode; degenerate rows keep the
-                # unimodal gate behavior exactly
+                # rows with a real second mode; degenerate rows keep exact unimodal gate behavior
                 multi = np.abs(np.log(mixture[0][:, 1].clip(1e-6, None)) - np.log(mixture[0][:, 0].clip(1e-6, None))) > 1e-9
                 log_div_modes = np.log(mixture[0].clip(1e-6, None)) - np.log(depth3d.clip(1e-6, None))[:, None]
             mask = depths > 0
@@ -227,45 +206,8 @@ class Optimizer(BaseClass):
             m = param_multiplier * self.conf.rob_std
 
             if self.conf.depth_factor == "maxmix":
-                if mixture is None:
-                    # degenerate K=1 mixture from the unimodal prior; verified
-                    # equivalent to the unimodal factor
-                    modes = depths[:, None]
-                    weights = np.ones_like(modes)
-                    sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
-                else:
-                    modes, weights, sigmas = (a[mask] for a in mixture)
-                    if self.conf.mixture_degenerate_unimodal:
-                        deg = ~multi[mask]
-                        modes = np.where(deg[:, None], depths[:, None], modes)
-                        sigmas = np.where(deg[:, None], (variances**0.5 / depths).clip(1e-6, None)[:, None], sigmas)
-                if self.conf.mixture_sigma_scale != 1.0:
-                    if self.conf.mixture_sigma_scale_bimodal_only and mixture is not None:
-                        scaled = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
-                        sigmas = np.where(multi[mask][:, None], scaled, sigmas)
-                    else:
-                        sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
-                if self.conf.depth_info_dedup_rho > 0:
-                    from scipy.spatial import cKDTree
-
-                    kps_m = kps_with3D[mask]
-                    ld = np.log(depths.clip(1e-6, None))
-                    neigh = cKDTree(kps_m).query_ball_point(kps_m, self.conf.depth_info_dedup_radius)
-                    n_corr = np.array([np.sum(np.abs(ld[j] - ld[i]) < 0.05) for i, j in enumerate(neigh)])
-                    # info *= N_eff/N per point <=> sigma *= sqrt(1 + rho*(n-1))
-                    g = np.sqrt(1.0 + self.conf.depth_info_dedup_rho * (n_corr - 1))
-                    if self.conf.depth_info_dedup_shuffle:
-                        g = np.random.default_rng(imid).permutation(g)
-                    sigmas = sigmas * g[:, None]
-                elif self.conf.depth_info_dedup_uniform > 0:
-                    sigmas = sigmas * self.conf.depth_info_dedup_uniform
-                if self.conf.mixture_null_weight > 0:
-                    nw = self.conf.mixture_null_weight
-                    modes = np.concatenate([modes, modes[:, :1]], axis=1)
-                    weights = np.concatenate([weights * (1 - nw), np.full((len(modes), 1), nw)], axis=1)
-                    sigmas = np.concatenate([sigmas, np.full((len(modes), 1), self.conf.mixture_null_sigma)], axis=1)
-                # residuals are whitened inside the factor: no magnitudes, and
-                # robust loss scale is in sigma units
+                modes, weights, sigmas = self.__maxmix_stacks(mixture, multi, mask, depths, variances, kps_with3D)
+                # residuals are whitened inside the factor; robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
                     problem,
                     imid,
@@ -403,6 +345,34 @@ class Optimizer(BaseClass):
         ba_cov = pycolmap.estimate_ba_covariance(options, self.mpsfm_rec.rec, bundler)
         for p3Did in bundle["pts3D"]:
             self.mpsfm_rec.point_covs.data[p3Did] = ba_cov.get_point_cov(p3Did)
+
+    def __maxmix_stacks(self, mixture, multi, mask, depths, variances, kps):
+        """Mode stacks for the maxmix factor with the conf-gated ablation dial applied."""
+        conf = self.conf
+        sig_cal = (variances**0.5 / depths).clip(1e-6, None)
+        if mixture is None:  # K=1 degenerate stack, verified equivalent to the unimodal factor
+            return depths[:, None], np.ones((len(depths), 1)), sig_cal[:, None]
+        modes, weights, sigmas = (a[mask] for a in mixture)
+        if conf.mixture_degenerate_unimodal:
+            deg = ~multi[mask][:, None]
+            modes = np.where(deg, depths[:, None], modes)
+            sigmas = np.where(deg, sig_cal[:, None], sigmas)
+        if conf.mixture_sigma_scale != 1.0:
+            scaled = (sigmas * conf.mixture_sigma_scale).clip(1e-6, None)
+            sigmas = np.where(multi[mask][:, None], scaled, sigmas) if conf.mixture_sigma_scale_bimodal_only else scaled
+        if conf.depth_info_dedup_rho > 0:
+            from scipy.spatial import cKDTree
+
+            ld = np.log(depths.clip(1e-6, None))
+            neigh = cKDTree(kps[mask]).query_ball_point(kps[mask], conf.depth_info_dedup_radius)
+            n_corr = np.array([np.sum(np.abs(ld[j] - ld[i]) < 0.05) for i, j in enumerate(neigh)])
+            sigmas = sigmas * np.sqrt(1.0 + conf.depth_info_dedup_rho * (n_corr - 1))[:, None]
+        if conf.mixture_null_weight > 0:
+            nw = conf.mixture_null_weight
+            modes = np.concatenate([modes, modes[:, :1]], axis=1)
+            weights = np.concatenate([weights * (1 - nw), np.full((len(modes), 1), nw)], axis=1)
+            sigmas = np.concatenate([sigmas, np.full((len(modes), 1), conf.mixture_null_sigma)], axis=1)
+        return modes, weights, sigmas
 
     def ba(self, bundle, mode, **kwargs) -> tuple[Problem, bool]:
         """Optimizes per frame data and 3d points in entire reconstruction"""

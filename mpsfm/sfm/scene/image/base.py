@@ -49,6 +49,12 @@ class Image(ColmapImageWrapper, BaseClass, Integration):
         "downscaled": True,
         "scale_filter": True,
         "scale_filter_factor": 1.5,
+        # bimodal integration prior: dense surface-hypothesis candidates on the
+        # discontinuity band, selected min-over-modes (shared precision)
+        "bimodal_prior": False,
+        "bimodal_radius": 4,
+        "bimodal_sep_min": 0.1,
+        "bimodal_contour_dilation": 1,
         # dev
         "robust_triangles": 2,
         "ignore_depths": True,

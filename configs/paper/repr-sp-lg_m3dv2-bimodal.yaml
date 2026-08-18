@@ -1,0 +1,13 @@
+# Integration-side bimodal prior (phase 1: pure routing — candidates share the
+# prior's precision, no authority change). Component-based candidate builder,
+# min-over-modes energy, min-over-candidates anchor admission.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    bimodal_prior: true
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
