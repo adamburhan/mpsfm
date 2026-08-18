@@ -1,0 +1,23 @@
+# Olson-complete max-mixture: null component (w 0.05, sigma 3.0) replaces the
+# Cauchy loss as the robustness mechanism — trivial loss, so real modes exert
+# full quadratic force and outliers route to the null INSIDE the selection.
+# Outlier threshold = sqrt(2 log(sig_null*w_k/(sig_k*w_null))) ~ 2.9 sigma.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  depth_loss_name: trivial
+  mixture_null_weight: 0.05

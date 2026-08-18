@@ -32,6 +32,11 @@ class Optimizer(BaseClass):
         # positive-control / authority knob: multiply mixture sigmas before the
         # factor (0.05 = 20x confidence). 1.0 = no-op.
         "mixture_sigma_scale": 1.0,
+        # Olson-style null component: appended as an extra mode (anchor value,
+        # huge sigma) so robustness lives inside the selection; use with
+        # depth_loss_name: trivial. 0.0 = off.
+        "mixture_null_weight": 0.0,
+        "mixture_null_sigma": 3.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -222,6 +227,11 @@ class Optimizer(BaseClass):
                         sigmas = np.where(deg[:, None], (variances**0.5 / depths).clip(1e-6, None)[:, None], sigmas)
                 if self.conf.mixture_sigma_scale != 1.0:
                     sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
+                if self.conf.mixture_null_weight > 0:
+                    nw = self.conf.mixture_null_weight
+                    modes = np.concatenate([modes, modes[:, :1]], axis=1)
+                    weights = np.concatenate([weights * (1 - nw), np.full((len(modes), 1), nw)], axis=1)
+                    sigmas = np.concatenate([sigmas, np.full((len(modes), 1), self.conf.mixture_null_sigma)], axis=1)
                 # residuals are whitened inside the factor: no magnitudes, and
                 # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
