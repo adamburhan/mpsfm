@@ -29,6 +29,9 @@ class Optimizer(BaseClass):
         # (exact unimodal-factor behavior) instead of the frozen fitted mode;
         # maxmix then differs from baseline only at genuinely bimodal kps.
         "mixture_degenerate_unimodal": False,
+        # positive-control / authority knob: multiply mixture sigmas before the
+        # factor (0.05 = 20x confidence). 1.0 = no-op.
+        "mixture_sigma_scale": 1.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -217,6 +220,8 @@ class Optimizer(BaseClass):
                         deg = ~multi[mask]
                         modes = np.where(deg[:, None], depths[:, None], modes)
                         sigmas = np.where(deg[:, None], (variances**0.5 / depths).clip(1e-6, None)[:, None], sigmas)
+                if self.conf.mixture_sigma_scale != 1.0:
+                    sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
                 # residuals are whitened inside the factor: no magnitudes, and
                 # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(

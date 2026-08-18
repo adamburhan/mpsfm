@@ -1,0 +1,22 @@
+# POSITIVE CONTROL, not a method arm: maxmix with mode sigmas scaled by 0.05
+# (20x confidence). If the factor chain is wired correctly this MUST produce a
+# large, visible effect (footprint explosion, depths snapping onto modes,
+# drastic pose change). Baseline-band output = plumbing bug.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  mixture_sigma_scale: 0.05
