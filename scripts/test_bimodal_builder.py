@@ -52,7 +52,7 @@ def main():
     cands = Integration._build_alt_priors(make_stub(d, continuity_from(d)))
     assert cands is not None
     own, other = cands
-    left_band = np.s_[10:70, 52:56]  # clean-left side of the band
+    left_band = np.s_[10:70, 53:56]  # clean-left, in-band columns (band = edge +- radius)
     assert np.abs(np.log(own[left_band] / 2.0)).max() < 0.02, "own not de-smeared on left band"
     cross = np.abs(np.log(other[left_band] / 5.0)) < 0.05
     assert cross.mean() > 0.9, f"other-surface coverage {cross.mean():.0%} on left band"
