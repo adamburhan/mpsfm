@@ -44,10 +44,15 @@ def main():
     stats = {"band": [[], []], "rest": [[], []]}
     wins = np.zeros(2, dtype=np.int64)  # band pixels where [bimodal, base] is closer
     for imid in imids:
-        gt = parser.gt_depth(imid)
+        gt_full = parser.gt_depth(imid)
+        H, W = base[imid]["dstar"].shape
+        iy = np.clip(np.round((np.arange(H) + 0.5) * gt_full.shape[0] / H - 0.5).astype(int), 0, gt_full.shape[0] - 1)
+        ix = np.clip(np.round((np.arange(W) + 0.5) * gt_full.shape[1] / W - 0.5).astype(int), 0, gt_full.shape[1] - 1)
+        gt = gt_full[iy[:, None], ix[None, :]]  # nearest sampling preserves edges
         rows = []
         for arm in (base, bim):
             d = arm[imid]["dstar"].astype(np.float64)
+            assert d.shape == (H, W)
             cont = arm[imid].get("continuity")
             band = ndimage.binary_dilation(~cont, iterations=args.band_radius) if cont is not None else None
             ok = (d > 0) & (gt > 0)
