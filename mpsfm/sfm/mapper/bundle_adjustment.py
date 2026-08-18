@@ -46,6 +46,11 @@ class Optimizer(BaseClass):
         # Replica battery: rho~0.8 within 32px same-surface). 0.0 = off.
         "depth_info_dedup_rho": 0.0,
         "depth_info_dedup_radius": 32.0,
+        # controls: shuffle permutes the per-point multipliers within each
+        # image (same total information, spatial correspondence destroyed);
+        # uniform applies one global sigma multiplier instead (>0 = on).
+        "depth_info_dedup_shuffle": False,
+        "depth_info_dedup_uniform": 0.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -248,7 +253,12 @@ class Optimizer(BaseClass):
                     neigh = cKDTree(kps_m).query_ball_point(kps_m, self.conf.depth_info_dedup_radius)
                     n_corr = np.array([np.sum(np.abs(ld[j] - ld[i]) < 0.05) for i, j in enumerate(neigh)])
                     # info *= N_eff/N per point <=> sigma *= sqrt(1 + rho*(n-1))
-                    sigmas = sigmas * np.sqrt(1.0 + self.conf.depth_info_dedup_rho * (n_corr - 1))[:, None]
+                    g = np.sqrt(1.0 + self.conf.depth_info_dedup_rho * (n_corr - 1))
+                    if self.conf.depth_info_dedup_shuffle:
+                        g = np.random.default_rng(imid).permutation(g)
+                    sigmas = sigmas * g[:, None]
+                elif self.conf.depth_info_dedup_uniform > 0:
+                    sigmas = sigmas * self.conf.depth_info_dedup_uniform
                 if self.conf.mixture_null_weight > 0:
                     nw = self.conf.mixture_null_weight
                     modes = np.concatenate([modes, modes[:, :1]], axis=1)

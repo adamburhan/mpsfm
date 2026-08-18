@@ -1,0 +1,25 @@
+# CONTROL 2 (shuffled dedup): null-v1 + the exact per-point dedup multipliers
+# permuted within each image — identical total information and multiplier
+# distribution, spatial correspondence destroyed.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: metric3dv2-nfc
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  depth_loss_name: trivial
+  mixture_null_weight: 0.05
+  mixture_degenerate_unimodal: true
+  depth_info_dedup_rho: 0.8
+  depth_info_dedup_shuffle: true
