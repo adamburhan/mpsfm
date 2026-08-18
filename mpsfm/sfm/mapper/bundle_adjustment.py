@@ -21,15 +21,6 @@ class Optimizer(BaseClass):
 
     default_conf = {
         "depth_factor": "unimodal",  # [unimodal, maxmix]
-        # maxmix ablation dial (paper arms; all default-off = production factor)
-        "mixture_collapse_anchor": False,  # drop mode 1 (sigma/obs-source arm)
-        "mixture_degenerate_unimodal": False,  # degenerate rows = exact unimodal path
-        "mixture_sigma_scale": 1.0,  # sigma multiplier (conditional-sigma / control arms)
-        "mixture_sigma_scale_bimodal_only": False,
-        "mixture_null_weight": 0.0,  # Olson null component (with trivial loss)
-        "mixture_null_sigma": 3.0,
-        "depth_info_dedup_rho": 0.0,  # correlated-evidence N_eff correction (measured rho/radius)
-        "depth_info_dedup_radius": 32.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -150,11 +141,9 @@ class Optimizer(BaseClass):
             p3Ds = image.point3D_ids(p2Ds)
             _, _, _, depth3d, _ = self.mpsfm_rec.project_image_3d_points(imid, p3Ds)
             mixture = image.depth.mixture_at_kps(p2Ds) if self.conf.depth_factor == "maxmix" else None
-            if mixture is not None and self.conf.mixture_collapse_anchor:
-                mixture = tuple(np.repeat(a[:, :1], a.shape[1], axis=1) for a in mixture)
-            multi = None
             if mixture is not None:
-                # rows with a real second mode; degenerate rows keep exact unimodal gate behavior
+                # rows with a real second mode; degenerate rows keep the
+                # unimodal gate behavior exactly
                 multi = np.abs(np.log(mixture[0][:, 1].clip(1e-6, None)) - np.log(mixture[0][:, 0].clip(1e-6, None))) > 1e-9
                 log_div_modes = np.log(mixture[0].clip(1e-6, None)) - np.log(depth3d.clip(1e-6, None))[:, None]
             mask = depths > 0
@@ -177,8 +166,7 @@ class Optimizer(BaseClass):
                 mask *= whitened < 3
 
             if diag.enabled():
-                # snapshot of everything BA sees for this image, pre-mask;
-                # finalized with post-solve depths after solve() below
+                # pre-mask snapshot of everything BA sees; finalized post-solve below
                 diag_records[imid] = {
                     "p2Ds": p2Ds.copy(),
                     "p3Ds": np.asarray(p3Ds).copy(),
@@ -206,8 +194,16 @@ class Optimizer(BaseClass):
             m = param_multiplier * self.conf.rob_std
 
             if self.conf.depth_factor == "maxmix":
-                modes, weights, sigmas = self.__maxmix_stacks(mixture, multi, mask, depths, variances, kps_with3D)
-                # residuals are whitened inside the factor; robust loss scale is in sigma units
+                if mixture is None:
+                    # degenerate K=1 mixture from the unimodal prior; verified
+                    # equivalent to the unimodal factor
+                    modes = depths[:, None]
+                    weights = np.ones_like(modes)
+                    sigmas = (variances**0.5 / depths).clip(1e-6, None)[:, None]
+                else:
+                    modes, weights, sigmas = (a[mask] for a in mixture)
+                # residuals are whitened inside the factor: no magnitudes, and
+                # robust loss scale is in sigma units
                 pycolmap.create_maxmix_depth_bundle_adjuster(
                     problem,
                     imid,
@@ -345,34 +341,6 @@ class Optimizer(BaseClass):
         ba_cov = pycolmap.estimate_ba_covariance(options, self.mpsfm_rec.rec, bundler)
         for p3Did in bundle["pts3D"]:
             self.mpsfm_rec.point_covs.data[p3Did] = ba_cov.get_point_cov(p3Did)
-
-    def __maxmix_stacks(self, mixture, multi, mask, depths, variances, kps):
-        """Mode stacks for the maxmix factor with the conf-gated ablation dial applied."""
-        conf = self.conf
-        sig_cal = (variances**0.5 / depths).clip(1e-6, None)
-        if mixture is None:  # K=1 degenerate stack, verified equivalent to the unimodal factor
-            return depths[:, None], np.ones((len(depths), 1)), sig_cal[:, None]
-        modes, weights, sigmas = (a[mask] for a in mixture)
-        if conf.mixture_degenerate_unimodal:
-            deg = ~multi[mask][:, None]
-            modes = np.where(deg, depths[:, None], modes)
-            sigmas = np.where(deg, sig_cal[:, None], sigmas)
-        if conf.mixture_sigma_scale != 1.0:
-            scaled = (sigmas * conf.mixture_sigma_scale).clip(1e-6, None)
-            sigmas = np.where(multi[mask][:, None], scaled, sigmas) if conf.mixture_sigma_scale_bimodal_only else scaled
-        if conf.depth_info_dedup_rho > 0:
-            from scipy.spatial import cKDTree
-
-            ld = np.log(depths.clip(1e-6, None))
-            neigh = cKDTree(kps[mask]).query_ball_point(kps[mask], conf.depth_info_dedup_radius)
-            n_corr = np.array([np.sum(np.abs(ld[j] - ld[i]) < 0.05) for i, j in enumerate(neigh)])
-            sigmas = sigmas * np.sqrt(1.0 + conf.depth_info_dedup_rho * (n_corr - 1))[:, None]
-        if conf.mixture_null_weight > 0:
-            nw = conf.mixture_null_weight
-            modes = np.concatenate([modes, modes[:, :1]], axis=1)
-            weights = np.concatenate([weights * (1 - nw), np.full((len(modes), 1), nw)], axis=1)
-            sigmas = np.concatenate([sigmas, np.full((len(modes), 1), conf.mixture_null_sigma)], axis=1)
-        return modes, weights, sigmas
 
     def ba(self, bundle, mode, **kwargs) -> tuple[Problem, bool]:
         """Optimizes per frame data and 3d points in entire reconstruction"""

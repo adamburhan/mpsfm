@@ -9,7 +9,6 @@ from cholespy import CholeskySolverF, MatrixType
 from tqdm import tqdm, trange
 
 from mpsfm.sfm.scene.camera import CameraIntData
-from mpsfm.utils import diag
 from mpsfm.utils.integration import move_bottom, move_left, move_right, move_top, setup_matrix_library, sigmoid
 
 device_g = "cuda" if torch.cuda.is_available() else "cpu"
@@ -28,7 +27,6 @@ class IntVars:
     A4 = None
     energy_old = None
     integrated = False
-    _alt_cache = None  # (candidates in build gauge, build scale, build shift) or (None,)
 
     def move_to_device(self, device):
         """Move variables between numpy and cupy."""
@@ -149,7 +147,6 @@ class Integration(IntVars):
         sparse_precision,
         sparse_depth,
         sparse_ids,
-        alt_logs=None,
     ):
         """Calculate energy for the optimization problem."""
         energy_matrix = (
@@ -159,11 +156,7 @@ class Integration(IntVars):
             + (wv_minus * (self.A4.dot(z) + ny) ** 2)
         )
         energy_matrix = cp.sum(energy_matrix)
-        prior_sq = (z_prior - z) ** 2
-        if alt_logs is not None:  # min-over-candidates; shared precision keeps A/Hessian unchanged
-            for cand in alt_logs:
-                prior_sq = cp.minimum(prior_sq, (cand - z) ** 2)
-        energy_matrix += cp.sum(self.conf.lambda1 * depth_precision * prior_sq)
+        energy_matrix += cp.sum(self.conf.lambda1 * depth_precision * (z_prior - z) ** 2)
         if len(sparse_ids) > 0:
             energy_matrix += cp.sum(self.conf.lambda2 * sparse_precision * (sparse_depth - z[sparse_ids]) ** 2)
         return energy_matrix
@@ -261,99 +254,7 @@ class Integration(IntVars):
                 valid_mask.astype(np.uint8),
                 (int(W // self.conf.downscale_factor), int(H // self.conf.downscale_factor)),
             ).astype(bool)
-        alt_logs = None
-        if not downscaled and self.conf.bimodal_prior:
-            alt_logs = self._alt_priors()
-        return depth_precision, z_prior, valid_mask, alt_logs
-
-    def _alt_priors(self):
-        """Dense surface-hypothesis candidates as flattened log-depth fields,
-        built once and tracked through gauge changes (candidates are copied
-        data_prior values, so they transform affinely like data_prior)."""
-        dep = self.depth
-        if self._alt_cache is None:
-            built = self._build_alt_priors()  # (candidates, band) or None
-            shift = float(getattr(dep, "shift", 0.0))
-            self._alt_cache = (built, float(dep.scale), shift) if built is not None else (None,)
-        if self._alt_cache[0] is None:
-            return None
-        (built, band), s0, c0 = self._alt_cache
-        s, c = float(dep.scale), float(getattr(dep, "shift", 0.0))
-        self._alt_band_flat = cp.asarray(band).flatten()
-        return [
-            cp.log(cp.asarray((cand - c0) / s0 * s + c, dtype=np.float64).clip(1e-6, None)).flatten()
-            for cand in built
-        ]
-
-    def _build_alt_priors(self):
-        """Component-based candidates on the discontinuity band: for each band
-        pixel, {own-surface, other-surface} values from the nearest clean pixels
-        on each side of the edge (raw prior stays as candidate 0)."""
-        from scipy import ndimage
-
-        dep = self.depth
-        cont = getattr(dep, "continuity_mask", None)
-        if cont is None:
-            return None
-        d = dep.data_prior
-        r, cd = self.conf.bimodal_radius, self.conf.bimodal_contour_dilation
-        disc = ~cont
-        usable = dep.valid & ~ndimage.binary_dilation(disc, iterations=max(cd, 1))
-        labels, nlab = ndimage.label(usable, structure=np.ones((3, 3)))
-        if nlab < 2:
-            return None
-        band = ndimage.binary_dilation(disc, iterations=r) & dep.valid
-        # own surface: nearest usable pixel (recovers the un-smeared value on ramp pixels)
-        _, (iy, ix) = ndimage.distance_transform_edt(~usable, return_indices=True)
-        own, own_lab = d[iy, ix], labels[iy, ix]
-        # other surface: nearest usable pixel of a DIFFERENT component, reaching past the ramp wall
-        reach = r + 2 * cd + 6
-        sizes = np.bincount(labels.ravel())
-        adjacent = [c for c in np.unique(own_lab[band]) if c > 0 and sizes[c] >= 50]
-        other, best = own.copy(), np.full(d.shape, np.inf)
-        for c in adjacent:
-            dist, (cy, cx) = ndimage.distance_transform_edt(labels != c, return_indices=True)
-            upd = band & (own_lab != c) & (dist <= reach) & (dist < best)
-            other[upd], best[upd] = d[cy[upd], cx[upd]], dist[upd]
-        own_out, other_out = d.copy(), d.copy()
-        own_out[band], other_out[band] = own[band], other[band]
-        sep = np.abs(np.log(other_out.clip(1e-6, None)) - np.log(own_out.clip(1e-6, None)))
-        other_out = np.where(sep >= self.conf.bimodal_sep_min, other_out, own_out)
-        return [own_out, other_out], band
-
-    def _seed_band_from_anchors(self, z, alt_logs, sparse_ids, sparse_depth, radius=12):
-        """Seed band pixels within `radius` (integration px) of an admitted anchor
-        to whichever candidate matches that anchor's multiview depth."""
-        from scipy.spatial import cKDTree
-
-        band = cp.asnumpy(self._alt_band_flat) if device_g == "cuda" else self._alt_band_flat
-        ids = cp.asnumpy(sparse_ids) if device_g == "cuda" else np.asarray(sparse_ids)
-        sd = cp.asnumpy(sparse_depth) if device_g == "cuda" else np.asarray(sparse_depth)
-        W = self.camera.nshape[1]
-        band_idx = np.flatnonzero(band)
-        anchors_xy = np.stack([ids % W, ids // W], 1).astype(float)
-        dist, nearest = cKDTree(anchors_xy).query(np.stack([band_idx % W, band_idx // W], 1).astype(float))
-        near = dist <= radius
-        if not near.any():
-            return z
-        tgt_idx = band_idx[near]
-        anchor_log = sd[nearest[near]]
-        cands = [cp.asnumpy(c[tgt_idx]) if device_g == "cuda" else np.asarray(c[tgt_idx]) for c in alt_logs]
-        z_np = cp.asnumpy(z) if device_g == "cuda" else np.array(z, copy=True)
-        best = z_np[tgt_idx]  # raw init competes too: no seed unless a candidate explains the anchor better
-        for c in cands:
-            best = np.where(np.abs(c - anchor_log) < np.abs(best - anchor_log), c, best)
-        z_np[tgt_idx] = best
-        return cp.asarray(z_np) if device_g == "cuda" else z_np
-
-    def _select_prior(self, z, z_prior, alt_logs):
-        """Per-pixel candidate nearest to current z (the b_vec observation)."""
-        if alt_logs is None:
-            return z_prior
-        out = z_prior
-        for cand in alt_logs:
-            out = cp.where(cp.abs(cand - z) < cp.abs(out - z), cand, out)
-        return out
+        return depth_precision, z_prior, valid_mask
 
     def process_normals_prior(self, valid_mask, downscaled=False):
         """Process normals prior for integration."""
@@ -479,7 +380,7 @@ class Integration(IntVars):
     def _integrate(self, depth3d, zvars3d, kps, K, cache_device="cpu", init=True):
         fx, fy, cx, cy = K
 
-        depth_precision, z_prior, valid_mask, alt_logs = self.process_depth_prior()
+        depth_precision, z_prior, valid_mask = self.process_depth_prior()
         nx, ny, nz, Vnx, Vny, Vnz = self.process_normals_prior(valid_mask)
         z = self.load_depth_checkpoint()
         sparse_ids, sparse_precision, sparse_depth = self.process_sparse_depth(depth3d, zvars3d, kps)
@@ -488,19 +389,9 @@ class Integration(IntVars):
             scale_factor = self.conf.scale_filter_factor
             div = cp.exp(sparse_depth) / cp.exp(z_prior[sparse_ids])
             valid = (div < scale_factor) * (div > (1 / scale_factor))
-            if alt_logs is not None:  # admit anchors any local surface hypothesis explains
-                for cand in alt_logs:
-                    divc = cp.exp(sparse_depth) / cp.exp(cand[sparse_ids])
-                    valid |= (divc < scale_factor) * (divc > (1 / scale_factor))
             sparse_ids = sparse_ids[valid.get() if device_g == "cuda" else valid]
             sparse_precision = sparse_precision[valid]
             sparse_depth = sparse_depth[valid]
-
-        if alt_logs is not None and not self.integrated and self.conf.bimodal_seed_band and len(sparse_ids) > 0:
-            # first integration: seed band pixels near ADMITTED anchors to the
-            # candidate matching the anchor's multiview depth (evidence-driven;
-            # pixels without nearby evidence keep the safe smeared init)
-            z = self._seed_band_from_anchors(z, alt_logs, sparse_ids, sparse_depth)
 
         Nz, Nu_precision, Nv_precision = self.init_int_vars(
             z,
@@ -530,7 +421,6 @@ class Integration(IntVars):
             sparse_precision,
             sparse_depth,
             sparse_ids,
-            alt_logs=alt_logs,
         )
         tic = time.time()
 
@@ -553,7 +443,7 @@ class Integration(IntVars):
                 + self.A3.T @ (wv_plus * (-ny))
                 + self.A4.T @ (wv_minus * (-ny))
             )
-            b_vec += self.conf.lambda1 * depth_precision * self._select_prior(z, z_prior, alt_logs)
+            b_vec += self.conf.lambda1 * depth_precision * z_prior
             if len(sparse_ids) > 0:
                 b_vec[sparse_ids] += self.conf.lambda2 * sparse_precision * sparse_depth
 
@@ -591,7 +481,6 @@ class Integration(IntVars):
                 sparse_precision,
                 sparse_depth,
                 sparse_ids,
-                alt_logs=alt_logs,
             )
             vis_energy.append(cp.asnumpy(energy))
 
@@ -619,13 +508,6 @@ class Integration(IntVars):
             print(f"Energy: {energy_0} --> {energy}.  Steps: {i+1}")
 
         self.depth.data = cp.asnumpy(cp.exp(z.reshape(self.camera.nshape))).astype(np.float64)
-        if diag.enabled():
-            diag.dump(
-                f"dstar_{self.imid}",
-                dstar=self.depth.data.astype(np.float16),
-                scale=float(self.depth.scale),
-                continuity=getattr(self.depth, "continuity_mask", None),
-            )
         self.integrated = True
 
         self.energy_old = energy
@@ -653,7 +535,7 @@ class Integration(IntVars):
             fx, fy, cx, cy = kwargs["K"]
         z = self.load_depth_checkpoint(downscaled=downscaled)
         sparse_ids, sparse_precision, _ = self.process_sparse_depth(depth3d, zvars3d, kps)
-        depth_precision, _, valid_mask, _ = self.process_depth_prior(downscaled=downscaled)
+        depth_precision, _, valid_mask = self.process_depth_prior(downscaled=downscaled)
         nx, ny, nz, Vnx, Vny, Vnz = self.process_normals_prior(valid_mask, downscaled=downscaled)
         Nz, Nu_precision, Nv_precision, _, _, _, _, wu, wv = self.init_int_vars(
             z, fx, fy, cx, cy, nx, ny, nz, Vnx, Vny, Vnz, init=False, cache=False, return_all=True, camdata=camdata
