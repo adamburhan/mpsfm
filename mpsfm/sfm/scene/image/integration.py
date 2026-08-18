@@ -272,13 +272,14 @@ class Integration(IntVars):
         data_prior values, so they transform affinely like data_prior)."""
         dep = self.depth
         if self._alt_cache is None:
-            built = self._build_alt_priors()
+            built = self._build_alt_priors()  # (candidates, band) or None
             shift = float(getattr(dep, "shift", 0.0))
             self._alt_cache = (built, float(dep.scale), shift) if built is not None else (None,)
         if self._alt_cache[0] is None:
             return None
-        built, s0, c0 = self._alt_cache
+        (built, band), s0, c0 = self._alt_cache
         s, c = float(dep.scale), float(getattr(dep, "shift", 0.0))
+        self._alt_band_flat = cp.asarray(band).flatten()
         return [
             cp.log(cp.asarray((cand - c0) / s0 * s + c, dtype=np.float64).clip(1e-6, None)).flatten()
             for cand in built
@@ -318,7 +319,7 @@ class Integration(IntVars):
         own_out[band], other_out[band] = own[band], other[band]
         sep = np.abs(np.log(other_out.clip(1e-6, None)) - np.log(own_out.clip(1e-6, None)))
         other_out = np.where(sep >= self.conf.bimodal_sep_min, other_out, own_out)
-        return [own_out, other_out]
+        return [own_out, other_out], band
 
     def _select_prior(self, z, z_prior, alt_logs):
         """Per-pixel candidate nearest to current z (the b_vec observation)."""
@@ -456,6 +457,10 @@ class Integration(IntVars):
         depth_precision, z_prior, valid_mask, alt_logs = self.process_depth_prior()
         nx, ny, nz, Vnx, Vny, Vnz = self.process_normals_prior(valid_mask)
         z = self.load_depth_checkpoint()
+        if alt_logs is not None and not self.integrated and self.conf.bimodal_seed_band:
+            # first integration: seed band pixels from the de-smeared own-surface
+            # candidate instead of the smeared prior (breaks ramp lock-in)
+            z = cp.where(self._alt_band_flat, alt_logs[0], z)
         sparse_ids, sparse_precision, sparse_depth = self.process_sparse_depth(depth3d, zvars3d, kps)
 
         if self.conf.scale_filter:

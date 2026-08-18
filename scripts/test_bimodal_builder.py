@@ -49,9 +49,10 @@ def step_scene(H=80, W=120, edge=60, ramp=6):
 def main():
     # --- step: own de-smears, other crosses ---
     d = step_scene()
-    cands = Integration._build_alt_priors(make_stub(d, continuity_from(d)))
-    assert cands is not None
-    own, other = cands
+    built = Integration._build_alt_priors(make_stub(d, continuity_from(d)))
+    assert built is not None
+    (own, other), band = built
+    assert band[10:70, 55].all() and not band[10:70, 40].any(), "band geometry wrong"
     left_band = np.s_[10:70, 53:56]  # clean-left, in-band columns (band = edge +- radius)
     assert np.abs(np.log(own[left_band] / 2.0)).max() < 0.02, "own not de-smeared on left band"
     cross = np.abs(np.log(other[left_band] / 5.0)) < 0.05
@@ -63,8 +64,7 @@ def main():
     # --- speckle: small outlier blob must not become a candidate source ---
     d2 = step_scene()
     d2[30:33, 20:23] = 0.5
-    cands = Integration._build_alt_priors(make_stub(d2, continuity_from(d2)))
-    own, other = cands
+    (own, other), _ = Integration._build_alt_priors(make_stub(d2, continuity_from(d2)))
     near_speckle = np.s_[25:40, 14:30]
     for name, c in [("own", own), ("other", other)]:
         contaminated = (np.abs(c[near_speckle] - 0.5) < 0.01) & (np.abs(d2[near_speckle] - 0.5) > 0.01)

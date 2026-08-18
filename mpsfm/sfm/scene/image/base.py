@@ -55,6 +55,7 @@ class Image(ColmapImageWrapper, BaseClass, Integration):
         "bimodal_radius": 4,
         "bimodal_sep_min": 0.1,
         "bimodal_contour_dilation": 1,
+        "bimodal_seed_band": True,
         # dev
         "robust_triangles": 2,
         "ignore_depths": True,
