@@ -32,6 +32,10 @@ class Optimizer(BaseClass):
         # positive-control / authority knob: multiply mixture sigmas before the
         # factor (0.05 = 20x confidence). 1.0 = no-op.
         "mixture_sigma_scale": 1.0,
+        # restrict mixture_sigma_scale to genuinely bimodal rows (conditional-
+        # sigma semantics: ambiguity is split out only where two modes exist;
+        # smooth-kp marginal sigma is already correct).
+        "mixture_sigma_scale_bimodal_only": False,
         # Olson-style null component: appended as an extra mode (anchor value,
         # huge sigma) so robustness lives inside the selection; use with
         # depth_loss_name: trivial. 0.0 = off.
@@ -226,7 +230,11 @@ class Optimizer(BaseClass):
                         modes = np.where(deg[:, None], depths[:, None], modes)
                         sigmas = np.where(deg[:, None], (variances**0.5 / depths).clip(1e-6, None)[:, None], sigmas)
                 if self.conf.mixture_sigma_scale != 1.0:
-                    sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
+                    if self.conf.mixture_sigma_scale_bimodal_only and mixture is not None:
+                        scaled = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
+                        sigmas = np.where(multi[mask][:, None], scaled, sigmas)
+                    else:
+                        sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
                 if self.conf.mixture_null_weight > 0:
                     nw = self.conf.mixture_null_weight
                     modes = np.concatenate([modes, modes[:, :1]], axis=1)
