@@ -42,6 +42,8 @@ def main():
     ap.add_argument("-c", "--conf", default="paper/repr-sp-lg_m3dv2-maxmix")
     ap.add_argument("--imname", default=None, help="image to sample (default: middle of window)")
     ap.add_argument("--kps", type=int, nargs="+", help="explicit keypoint ids (default: separation spectrum)")
+    ap.add_argument("--sigma-scale", type=float, default=1.0,
+                    help="scale bimodal-row sigmas as the csig factor does (e.g. 0.30)")
     ap.add_argument("-n", "--num_samples", type=int, default=10)
     ap.add_argument("--out", default="local/diag/mixture_viz")
     args = ap.parse_args()
@@ -72,6 +74,10 @@ def main():
     assert depth_obj.mixture is not None, "no mixture fitted — conf needs depth.mixture: true"
 
     gt = parser.gt_depth(next(i for i, im in parser.rec.images.items() if im.name == image.name))
+    if args.sigma_scale != 1.0:
+        mx = depth_obj.mixture
+        bimodal = np.abs(np.log(mx["modes"][:, 1].clip(1e-12)) - np.log(mx["modes"][:, 0].clip(1e-12))) > 1e-9
+        mx["sigmas"] = np.where(bimodal[:, None], mx["sigmas"] * args.sigma_scale, mx["sigmas"])
     modes = depth_obj.mixture["modes"]
     sep = np.abs(np.log(modes[:, 1].clip(1e-12)) - np.log(modes[:, 0].clip(1e-12)))
     if args.kps:
