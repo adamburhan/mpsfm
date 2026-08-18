@@ -41,6 +41,11 @@ class Optimizer(BaseClass):
         # depth_loss_name: trivial. 0.0 = off.
         "mixture_null_weight": 0.0,
         "mixture_null_sigma": 3.0,
+        # information de-duplication for spatially correlated prior errors:
+        # per-point N_eff under equicorrelation (rho, radius MEASURED on
+        # Replica battery: rho~0.8 within 32px same-surface). 0.0 = off.
+        "depth_info_dedup_rho": 0.0,
+        "depth_info_dedup_radius": 32.0,
         "depth_loss_name": "cauchy",
         "ref3d_loss_name": "trivial",
         "reproj_loss_name": "SOFT_L1",
@@ -235,6 +240,15 @@ class Optimizer(BaseClass):
                         sigmas = np.where(multi[mask][:, None], scaled, sigmas)
                     else:
                         sigmas = (sigmas * self.conf.mixture_sigma_scale).clip(1e-6, None)
+                if self.conf.depth_info_dedup_rho > 0:
+                    from scipy.spatial import cKDTree
+
+                    kps_m = kps_with3D[mask]
+                    ld = np.log(depths.clip(1e-6, None))
+                    neigh = cKDTree(kps_m).query_ball_point(kps_m, self.conf.depth_info_dedup_radius)
+                    n_corr = np.array([np.sum(np.abs(ld[j] - ld[i]) < 0.05) for i, j in enumerate(neigh)])
+                    # info *= N_eff/N per point <=> sigma *= sqrt(1 + rho*(n-1))
+                    sigmas = sigmas * np.sqrt(1.0 + self.conf.depth_info_dedup_rho * (n_corr - 1))[:, None]
                 if self.conf.mixture_null_weight > 0:
                     nw = self.conf.mixture_null_weight
                     modes = np.concatenate([modes, modes[:, :1]], axis=1)
