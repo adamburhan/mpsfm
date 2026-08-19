@@ -1,0 +1,17 @@
+# GT-depth oracle, unimodal arm: identical to repr-sp-lg_m3dv2-uni-cauchy003-noint
+# except the depth prior is Replica GT depth (cache-only 'gtdepth' extractor;
+# pre-populate with scripts/write_gt_depth_replica.py). mu = bilinear GT at the
+# detector pixel — near edges this blends FG/BG, which is exactly the
+# ambiguity the oracle isolates. Matched arm: repr-sp-lg_m3dv2-gt-maxmix-cauchy003-noint.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+extractors:
+  depth: gtdepth
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  fixed_log_sigma: 0.03
+integrate: false

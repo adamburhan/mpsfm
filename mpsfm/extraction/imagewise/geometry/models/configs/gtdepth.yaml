@@ -1,0 +1,10 @@
+dataset:
+    return_types:
+        - "image"
+model:
+    name: gtdepth
+    write_name: gtdepth
+    return_types:
+        - depth
+        - depth_variance
+        - valid

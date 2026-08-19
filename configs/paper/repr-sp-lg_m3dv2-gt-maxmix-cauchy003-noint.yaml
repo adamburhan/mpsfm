@@ -1,0 +1,26 @@
+# GT-depth oracle, FG/BG arm: identical to repr-sp-lg_m3dv2-maxmix-cauchy003-noint
+# except the depth prior is Replica GT depth (cache-only 'gtdepth' extractor;
+# pre-populate with scripts/write_gt_depth_replica.py). Modes come from the
+# same EM patch-mixture machinery, now fit on GT depth: perfect surfaces, no
+# MDE error/correlation/smearing. Tests whether feature-to-surface ambiguity
+# alone justifies the multimodal factor. Matched arm:
+# repr-sp-lg_m3dv2-gt-uni-cauchy003-noint.
+reconstruction:
+  image:
+    normals:
+      flip_consistency: true
+    depth:
+      mixture: true
+      mixture_method: em
+      mixture_radius: 4
+      mixture_sig_floor: 0.01
+      mixture_sep_min: 0.03
+extractors:
+  depth: gtdepth
+  normals: metric3dv2-nfc
+dataset:
+  resize_max: null
+ba:
+  depth_factor: maxmix
+  fixed_log_sigma: 0.03
+integrate: false
