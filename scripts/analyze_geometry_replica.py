@@ -226,7 +226,7 @@ def analyze_conf(conf, scenes, mode, diag_root, exp_dir):
                     rows["in_ba"].append(bool(in_ba[r]))
                     rows["sel_ok"].append(sel_ok)
                     rows["alt_correct"].append(alt_correct)
-    return {k: (np.array(v, dtype=object) if k == "key" else np.asarray(v)) for k, v in rows.items()}
+    return {k: (v if k == "key" else np.asarray(v)) for k, v in rows.items()}
 
 
 def subset_masks(data):
